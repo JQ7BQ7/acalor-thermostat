@@ -1,40 +1,40 @@
-"""Constants for the Generic Thermostat helper."""
+"""Constants for the Acalor Thermostat integration."""
 
-
-from homeassistant.components.climate import (
-    PRESET_ACTIVITY,
-    PRESET_AWAY,
-    PRESET_COMFORT,
-    PRESET_ECO,
-    PRESET_HOME,
-    PRESET_SLEEP,
-)
 from homeassistant.const import Platform
 
 DOMAIN = "acalor_thermostat"
 
 PLATFORMS = [Platform.CLIMATE]
 
-CONF_AC_MODE = "ac_mode"
-CONF_COLD_TOLERANCE = "cold_tolerance"
-CONF_HEATER = "heater"
-CONF_HOT_TOLERANCE = "hot_tolerance"
-CONF_MAX_TEMP = "max_temp"
-CONF_MIN_DUR = "min_cycle_duration"
-CONF_MAX_DUR = "max_cycle_duration"
-CONF_DUR_COOLDOWN = "cycle_cooldown"
-CONF_MIN_TEMP = "min_temp"
-CONF_PRESETS = {
-    p: f"{p}_temp"
-    for p in (
-        PRESET_AWAY,
-        PRESET_COMFORT,
-        PRESET_ECO,
-        PRESET_HOME,
-        PRESET_SLEEP,
-        PRESET_ACTIVITY,
-    )
-}
+# --- Pflichtparameter (Lastenheft 7.1) ---
 CONF_SENSOR = "target_sensor"
+CONF_HEATER = "heater"
+CONF_COOLER = "cooler"
+CONF_DDZ = "dead_zone"
+CONF_HEAT_ON_TOLERANCE = "heat_on_tolerance"
+CONF_HEAT_OFF_TOLERANCE = "heat_off_tolerance"
+CONF_COOL_ON_TOLERANCE = "cool_on_tolerance"
+CONF_COOL_OFF_TOLERANCE = "cool_off_tolerance"
+
+# --- Erweiterbare Parameter (Lastenheft 7.2) ---
+CONF_MIN_DUR_HEAT = "min_cycle_duration_heat"
+CONF_MIN_DUR_COOL = "min_cycle_duration_cool"
+CONF_MAX_DUR = "max_cycle_duration"
+CONF_START_DELAY = "start_delay"
 CONF_KEEP_ALIVE = "keep_alive"
+
+# --- Temperaturauflösung (Lastenheft 7.3) ---
+CONF_RESOLUTION = "resolution"
+
+# --- Sollwert-Grenzen / Startwerte ---
+CONF_MIN_TEMP = "min_temp"
+CONF_MAX_TEMP = "max_temp"
+CONF_TARGET_TEMP_HEAT = "target_temp_heat"
+CONF_TARGET_TEMP_COOL = "target_temp_cool"
+
+# --- Defaults ---
 DEFAULT_TOLERANCE = 0.3
+DEFAULT_DDZ = 2.0
+DEFAULT_START_DELAY = 15  # Sekunden (Lastenheft 8.4)
+DEFAULT_RESOLUTION = "0.1"
+RESOLUTIONS = ["0.1", "0.5"]

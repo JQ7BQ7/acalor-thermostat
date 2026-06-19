@@ -1,21 +1,26 @@
-"""Adds support for generic thermostat units."""
+"""Acalor Thermostat – climate entity with separate heat/cool setpoints.
+
+Phase 3 (Lastenheft): getrennte Heiz-/Kühl-Solltemperatur, zweiter Schalter
+(Kühlschalter) mit gegenseitiger Verriegelung, vier Toleranzen, konfigurierbare
+Auflösung, Startverzögerung sowie Mindest-/Höchstlaufzeit. Modi: OFF / HEAT / COOL.
+
+Noch nicht enthalten (spätere Phasen): Dynamic Dead Zone (Phase 5),
+HEAT_COOL-Dispatcher (Phase 6), Anbindung externer Anforderungen (Phase 7).
+Die Einhängepunkte für externe Anforderungen sind als Seam bereits vorhanden.
+"""
+
+from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
 from datetime import datetime, timedelta
-from functools import partial
 import logging
 import math
-import time
-from typing import Any
-
-import voluptuous as vol
+from typing import Any, Literal
 
 from homeassistant.components.climate import (
-    ATTR_HVAC_MODE,
-    ATTR_PRESET_MODE,
-    PLATFORM_SCHEMA as CLIMATE_PLATFORM_SCHEMA,
-    PRESET_NONE,
+    ATTR_TARGET_TEMP_HIGH,
+    ATTR_TARGET_TEMP_LOW,
     ClimateEntity,
     ClimateEntityFeature,
     HVACAction,
@@ -26,22 +31,16 @@ from homeassistant.const import (
     ATTR_ENTITY_ID,
     ATTR_TEMPERATURE,
     CONF_NAME,
-    CONF_UNIQUE_ID,
     EVENT_HOMEASSISTANT_START,
-    PRECISION_HALVES,
-    PRECISION_TENTHS,
-    PRECISION_WHOLE,
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
     STATE_ON,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
-    UnitOfTemperature,
 )
 from homeassistant.core import (
     CALLBACK_TYPE,
     DOMAIN as HOMEASSISTANT_DOMAIN,
-    Context,
     CoreState,
     Event,
     EventStateChangedData,
@@ -49,87 +48,56 @@ from homeassistant.core import (
     State,
     callback,
 )
-from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.device import async_entity_id_to_device
-from homeassistant.helpers.entity import CONTEXT_RECENT_TIME_SECONDS
-from homeassistant.helpers.entity_platform import (
-    AddConfigEntryEntitiesCallback,
-    AddEntitiesCallback,
-)
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_state_change_event,
     async_track_time_interval,
 )
-from homeassistant.helpers.reload import async_setup_reload_service
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType, VolDictType
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    CONF_AC_MODE,
-    CONF_COLD_TOLERANCE,
-    CONF_DUR_COOLDOWN,
+    CONF_COOL_OFF_TOLERANCE,
+    CONF_COOL_ON_TOLERANCE,
+    CONF_COOLER,
+    CONF_DDZ,
+    CONF_HEAT_OFF_TOLERANCE,
+    CONF_HEAT_ON_TOLERANCE,
     CONF_HEATER,
-    CONF_HOT_TOLERANCE,
     CONF_KEEP_ALIVE,
     CONF_MAX_DUR,
     CONF_MAX_TEMP,
-    CONF_MIN_DUR,
+    CONF_MIN_DUR_COOL,
+    CONF_MIN_DUR_HEAT,
     CONF_MIN_TEMP,
-    CONF_PRESETS,
+    CONF_RESOLUTION,
     CONF_SENSOR,
+    CONF_START_DELAY,
+    CONF_TARGET_TEMP_COOL,
+    CONF_TARGET_TEMP_HEAT,
+    DEFAULT_RESOLUTION,
     DEFAULT_TOLERANCE,
-    DOMAIN,
-    PLATFORMS,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-DEFAULT_NAME = "Generic Thermostat"
-
-CONF_INITIAL_HVAC_MODE = "initial_hvac_mode"
-CONF_PRECISION = "precision"
-CONF_TARGET_TEMP = "target_temp"
-CONF_TEMP_STEP = "target_temp_step"
+# Welche Ausgangs-Anforderung der Regler aktuell stellt.
+Output = Literal["heat", "cool"]
+Decision = Literal["heat", "cool", "idle"]
 
 
-PRESETS_SCHEMA: VolDictType = {
-    vol.Optional(v): vol.Coerce(float) for v in CONF_PRESETS.values()
-}
-
-PLATFORM_SCHEMA_COMMON = vol.Schema(
-    {
-        vol.Required(CONF_HEATER): cv.entity_id,
-        vol.Required(CONF_SENSOR): cv.entity_id,
-        vol.Optional(CONF_AC_MODE): cv.boolean,
-        vol.Optional(CONF_MAX_TEMP): vol.Coerce(float),
-        vol.Optional(CONF_MIN_DUR): cv.positive_time_period,
-        vol.Optional(CONF_MAX_DUR): cv.positive_time_period,
-        vol.Optional(CONF_DUR_COOLDOWN): cv.positive_time_period,
-        vol.Optional(CONF_MIN_TEMP): vol.Coerce(float),
-        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-        vol.Optional(CONF_COLD_TOLERANCE, default=DEFAULT_TOLERANCE): vol.Coerce(float),
-        vol.Optional(CONF_HOT_TOLERANCE, default=DEFAULT_TOLERANCE): vol.Coerce(float),
-        vol.Optional(CONF_TARGET_TEMP): vol.Coerce(float),
-        vol.Optional(CONF_KEEP_ALIVE): cv.positive_time_period,
-        vol.Optional(CONF_INITIAL_HVAC_MODE): vol.In(
-            [HVACMode.COOL, HVACMode.HEAT, HVACMode.OFF]
-        ),
-        vol.Optional(CONF_PRECISION): vol.All(
-            vol.Coerce(float),
-            vol.In([PRECISION_TENTHS, PRECISION_HALVES, PRECISION_WHOLE]),
-        ),
-        vol.Optional(CONF_TEMP_STEP): vol.All(
-            vol.In([PRECISION_TENTHS, PRECISION_HALVES, PRECISION_WHOLE])
-        ),
-        vol.Optional(CONF_UNIQUE_ID): cv.string,
-        **PRESETS_SCHEMA,
-    }
-)
-
-
-PLATFORM_SCHEMA = CLIMATE_PLATFORM_SCHEMA.extend(PLATFORM_SCHEMA_COMMON.schema)
+def _as_timedelta(value: Any) -> timedelta | None:
+    """Convert a config value (duration dict / timedelta) to timedelta."""
+    if value is None:
+        return None
+    if isinstance(value, timedelta):
+        return value
+    if isinstance(value, Mapping):
+        return timedelta(**value)
+    # Plain number of seconds.
+    return timedelta(seconds=float(value))
 
 
 async def async_setup_entry(
@@ -137,86 +105,44 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Initialize config entry."""
-    await _async_setup_config(
-        hass,
-        PLATFORM_SCHEMA_COMMON(dict(config_entry.options)),
-        config_entry.entry_id,
-        async_add_entities,
-    )
-
-
-async def async_setup_platform(
-    hass: HomeAssistant,
-    config: ConfigType,
-    async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
-) -> None:
-    """Set up the generic thermostat platform."""
-
-    await async_setup_reload_service(hass, DOMAIN, PLATFORMS)
-    await _async_setup_config(
-        hass, config, config.get(CONF_UNIQUE_ID), async_add_entities
-    )
-
-
-async def _async_setup_config(
-    hass: HomeAssistant,
-    config: Mapping[str, Any],
-    unique_id: str | None,
-    async_add_entities: AddEntitiesCallback | AddConfigEntryEntitiesCallback,
-) -> None:
-    """Set up the generic thermostat platform."""
-
-    name: str = config[CONF_NAME]
-    heater_entity_id: str = config[CONF_HEATER]
-    sensor_entity_id: str = config[CONF_SENSOR]
-    min_temp: float | None = config.get(CONF_MIN_TEMP)
-    max_temp: float | None = config.get(CONF_MAX_TEMP)
-    target_temp: float | None = config.get(CONF_TARGET_TEMP)
-    min_cycle_duration: timedelta | None = config.get(CONF_MIN_DUR)
-    max_cycle_duration: timedelta | None = config.get(CONF_MAX_DUR)
-    cycle_cooldown: timedelta | None = config.get(CONF_DUR_COOLDOWN)
-    cold_tolerance: float = config[CONF_COLD_TOLERANCE]
-    hot_tolerance: float = config[CONF_HOT_TOLERANCE]
-    keep_alive: timedelta | None = config.get(CONF_KEEP_ALIVE)
-    initial_hvac_mode: HVACMode | None = config.get(CONF_INITIAL_HVAC_MODE)
-    presets: dict[str, float] = {
-        key: config[value] for key, value in CONF_PRESETS.items() if value in config
-    }
-    precision: float | None = config.get(CONF_PRECISION)
-    target_temperature_step: float | None = config.get(CONF_TEMP_STEP)
-    unit = hass.config.units.temperature_unit
-
+    """Initialize the config entry."""
+    options = config_entry.options
     async_add_entities(
         [
-            GenericThermostat(
+            AcalorThermostat(
                 hass,
-                name=name,
-                heater_entity_id=heater_entity_id,
-                sensor_entity_id=sensor_entity_id,
-                min_temp=min_temp,
-                max_temp=max_temp,
-                target_temp=target_temp,
-                min_cycle_duration=min_cycle_duration,
-                max_cycle_duration=max_cycle_duration,
-                cycle_cooldown=cycle_cooldown,
-                cold_tolerance=cold_tolerance,
-                hot_tolerance=hot_tolerance,
-                keep_alive=keep_alive,
-                initial_hvac_mode=initial_hvac_mode,
-                presets=presets,
-                precision=precision,
-                target_temperature_step=target_temperature_step,
-                unit=unit,
-                unique_id=unique_id,
+                name=options[CONF_NAME],
+                sensor_entity_id=options[CONF_SENSOR],
+                heater_entity_id=options[CONF_HEATER],
+                cooler_entity_id=options[CONF_COOLER],
+                dead_zone=options[CONF_DDZ],
+                heat_on_tolerance=options.get(CONF_HEAT_ON_TOLERANCE, DEFAULT_TOLERANCE),
+                heat_off_tolerance=options.get(
+                    CONF_HEAT_OFF_TOLERANCE, DEFAULT_TOLERANCE
+                ),
+                cool_on_tolerance=options.get(CONF_COOL_ON_TOLERANCE, DEFAULT_TOLERANCE),
+                cool_off_tolerance=options.get(
+                    CONF_COOL_OFF_TOLERANCE, DEFAULT_TOLERANCE
+                ),
+                resolution=options.get(CONF_RESOLUTION, DEFAULT_RESOLUTION),
+                min_dur_heat=_as_timedelta(options.get(CONF_MIN_DUR_HEAT)),
+                min_dur_cool=_as_timedelta(options.get(CONF_MIN_DUR_COOL)),
+                max_cycle_duration=_as_timedelta(options.get(CONF_MAX_DUR)),
+                start_delay=_as_timedelta(options.get(CONF_START_DELAY)),
+                keep_alive=_as_timedelta(options.get(CONF_KEEP_ALIVE)),
+                min_temp=options.get(CONF_MIN_TEMP),
+                max_temp=options.get(CONF_MAX_TEMP),
+                target_temp_heat=options.get(CONF_TARGET_TEMP_HEAT),
+                target_temp_cool=options.get(CONF_TARGET_TEMP_COOL),
+                unit=hass.config.units.temperature_unit,
+                unique_id=config_entry.entry_id,
             )
         ]
     )
 
 
-class GenericThermostat(ClimateEntity, RestoreEntity):
-    """Representation of a Generic Thermostat device."""
+class AcalorThermostat(ClimateEntity, RestoreEntity):
+    """Thermostat with independent heat/cool setpoints and two switches."""
 
     _attr_should_poll = False
 
@@ -225,80 +151,91 @@ class GenericThermostat(ClimateEntity, RestoreEntity):
         hass: HomeAssistant,
         *,
         name: str,
-        heater_entity_id: str,
         sensor_entity_id: str,
+        heater_entity_id: str,
+        cooler_entity_id: str,
+        dead_zone: float,
+        heat_on_tolerance: float,
+        heat_off_tolerance: float,
+        cool_on_tolerance: float,
+        cool_off_tolerance: float,
+        resolution: str,
+        min_dur_heat: timedelta | None,
+        min_dur_cool: timedelta | None,
+        max_cycle_duration: timedelta | None,
+        start_delay: timedelta | None,
+        keep_alive: timedelta | None,
         min_temp: float | None,
         max_temp: float | None,
-        target_temp: float | None,
-        min_cycle_duration: timedelta | None,
-        max_cycle_duration: timedelta | None,
-        cycle_cooldown: timedelta | None,
-        cold_tolerance: float,
-        hot_tolerance: float,
-        keep_alive: timedelta | None,
-        initial_hvac_mode: HVACMode | None,
-        presets: dict[str, float],
-        precision: float | None,
-        target_temperature_step: float | None,
-        unit: UnitOfTemperature,
-        unique_id: str | None,
+        target_temp_heat: float | None,
+        target_temp_cool: float | None,
+        unit: str,
+        unique_id: str,
     ) -> None:
         """Initialize the thermostat."""
         self._attr_name = name
-        self.heater_entity_id = heater_entity_id
+        self._attr_unique_id = unique_id
         self.sensor_entity_id = sensor_entity_id
-        self.device_entry = async_entity_id_to_device(
-            hass,
-            heater_entity_id,
-        )
-        self.min_cycle_duration = min_cycle_duration or timedelta()
-        self.max_cycle_duration = max_cycle_duration
-        self.cycle_cooldown = cycle_cooldown or timedelta()
-        self._cold_tolerance = cold_tolerance
-        # Subtract the cooldown so it doesn't impact startup
-        self._last_toggled_time = dt_util.utcnow() - self.cycle_cooldown
-        self._cycle_callback: CALLBACK_TYPE | None = None
-        self._check_callback: CALLBACK_TYPE | None = None
-        # Context ID used to detect our own toggles
-        self._last_context_id: str | None = None
-        self._hot_tolerance = hot_tolerance
+        self.heater_entity_id = heater_entity_id
+        self.cooler_entity_id = cooler_entity_id
+        self.device_entry = async_entity_id_to_device(hass, heater_entity_id)
+
+        # Konfiguration
+        self._dead_zone = dead_zone  # Phase 5: noch nicht erzwungen
+        self._heat_on_tol = heat_on_tolerance
+        self._heat_off_tol = heat_off_tolerance
+        self._cool_on_tol = cool_on_tolerance
+        self._cool_off_tol = cool_off_tolerance
+        self._resolution = float(resolution)
+        self._min_dur_heat = min_dur_heat or timedelta()
+        self._min_dur_cool = min_dur_cool or timedelta()
+        self._max_cycle_duration = max_cycle_duration
+        self._start_delay = start_delay or timedelta()
         self._keep_alive = keep_alive
-        self._hvac_mode = initial_hvac_mode
-        self._saved_target_temp = target_temp or next(iter(presets.values()), None)
-        self._temp_precision = precision
-        self._temp_target_temperature_step = target_temperature_step
-        self._attr_hvac_modes = [
-            HVACMode.HEAT,
-            HVACMode.COOL,
-            HVACMode.OFF,
-        ]
-        self._active = False
-        self._cur_temp: float | None = None
-        self._temp_lock = asyncio.Lock()
         self._min_temp = min_temp
         self._max_temp = max_temp
-        self._attr_preset_mode = PRESET_NONE
-        self._target_temp = target_temp
+
+        # Laufzeit-Zustand
+        self._cur_temp: float | None = None
+        self._target_temp_heat = target_temp_heat
+        self._target_temp_cool = target_temp_cool
+        self._hvac_mode: HVACMode = HVACMode.OFF
+        self._active = False
+        self._temp_lock = asyncio.Lock()
+
+        # Welcher Ausgang ist von uns angefordert + seit wann (für Laufzeiten).
+        self._active_output: Output | None = None
+        self._output_started: datetime | None = None
+
+        # Externe Anforderungen (Seam, Lastenheft 6). Defaults = neutral.
+        self._ext_heat_enable = True
+        self._ext_cool_enable = True
+        self._ext_heat_offset = 0.0
+        self._ext_cool_offset = 0.0
+
+        # Timer-Handles
+        self._start_delay_unsub: CALLBACK_TYPE | None = None
+        self._min_runtime_unsub: CALLBACK_TYPE | None = None
+        self._max_runtime_unsub: CALLBACK_TYPE | None = None
+        self._pending_start_output: Output | None = None
+
         self._attr_temperature_unit = unit
-        self._attr_unique_id = unique_id
+        self._attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL]
         self._attr_supported_features = (
             ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
             | ClimateEntityFeature.TURN_OFF
             | ClimateEntityFeature.TURN_ON
         )
-        if len(presets):
-            self._attr_supported_features |= ClimateEntityFeature.PRESET_MODE
-            self._attr_preset_modes = [PRESET_NONE, *presets.keys()]
-        else:
-            self._attr_preset_modes = [PRESET_NONE]
-        self._presets = presets
-        self._presets_inv = {v: k for k, v in presets.items()}
+
+    # ------------------------------------------------------------------ #
+    # Lifecycle
+    # ------------------------------------------------------------------ #
 
     async def async_added_to_hass(self) -> None:
-        """Run when entity about to be added."""
+        """Register listeners and restore state."""
         await super().async_added_to_hass()
 
-        # Add listener
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, [self.sensor_entity_id], self._async_sensor_changed
@@ -306,7 +243,9 @@ class GenericThermostat(ClimateEntity, RestoreEntity):
         )
         self.async_on_remove(
             async_track_state_change_event(
-                self.hass, [self.heater_entity_id], self._async_switch_changed
+                self.hass,
+                [self.heater_entity_id, self.cooler_entity_id],
+                self._async_switch_changed,
             )
         )
         self.async_on_remove(self._cancel_timers)
@@ -314,155 +253,146 @@ class GenericThermostat(ClimateEntity, RestoreEntity):
         if self._keep_alive:
             self.async_on_remove(
                 async_track_time_interval(
-                    self.hass, self._async_control_heating, self._keep_alive
+                    self.hass, self._async_control_keepalive, self._keep_alive
                 )
             )
 
+        await self._async_restore_state()
+
         @callback
         def _async_startup(_: Event | None = None) -> None:
-            """Init on startup."""
             sensor_state = self.hass.states.get(self.sensor_entity_id)
             if sensor_state and sensor_state.state not in (
                 STATE_UNAVAILABLE,
                 STATE_UNKNOWN,
             ):
                 self._async_update_temp(sensor_state)
-                self.async_write_ha_state()
-            switch_state = self.hass.states.get(self.heater_entity_id)
-            if switch_state and switch_state.state not in (
-                STATE_UNAVAILABLE,
-                STATE_UNKNOWN,
-            ):
-                self.hass.async_create_task(
-                    self._check_switch_initial_state(), eager_start=True
-                )
+            # Tatsächlichen Ausgangszustand übernehmen + Sicherheits-Check.
+            self.hass.async_create_task(self._async_startup_control(), eager_start=True)
 
         if self.hass.state is CoreState.running:
             _async_startup()
         else:
             self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_START, _async_startup)
 
-        # Check If we have an old state
-        if (old_state := await self.async_get_last_state()) is not None:
-            # If we have no initial temperature, restore
-            if self._target_temp is None:
-                # If we have a previously saved temperature
-                if old_state.attributes.get(ATTR_TEMPERATURE) is None:
-                    if self._hvac_mode == HVACMode.COOL:
-                        self._target_temp = self.max_temp
-                    else:
-                        self._target_temp = self.min_temp
+    async def _async_restore_state(self) -> None:
+        """Restore HVAC mode and both setpoints (Lastenheft 3.4)."""
+        old_state = await self.async_get_last_state()
+        if old_state is not None:
+            if self._target_temp_heat is None:
+                self._target_temp_heat = _to_float(
+                    old_state.attributes.get(ATTR_TARGET_TEMP_LOW)
+                )
+            if self._target_temp_cool is None:
+                self._target_temp_cool = _to_float(
+                    old_state.attributes.get(ATTR_TARGET_TEMP_HIGH)
+                )
+            try:
+                restored_mode = HVACMode(old_state.state)
+            except ValueError:
+                restored_mode = HVACMode.OFF
+            if restored_mode in self._attr_hvac_modes:
+                self._hvac_mode = restored_mode
+
+        # Sinnvolle Defaults, falls nichts wiederhergestellt werden konnte.
+        if self._target_temp_heat is None:
+            self._target_temp_heat = self.min_temp
+        if self._target_temp_cool is None:
+            self._target_temp_cool = self.max_temp
+
+        self._target_temp_heat = self._round(self._target_temp_heat)
+        self._target_temp_cool = self._round(self._target_temp_cool)
+        # Phase 5: hier wird zusätzlich die DDZ erzwungen.
+
+    async def _async_startup_control(self) -> None:
+        """Adopt the real switch state, enforce safety, then evaluate."""
+        async with self._temp_lock:
+            heater_on = self._switch_is_on(self.heater_entity_id)
+            cooler_on = self._switch_is_on(self.cooler_entity_id)
+
+            # 3.4.1 / 4.1: laufende Aktion nicht speichern, Verriegelung prüfen.
+            if self._hvac_mode == HVACMode.OFF or (heater_on and cooler_on):
+                # Sicherheit: in OFF oder bei Doppelschaltung alles aus.
+                if heater_on or cooler_on:
                     _LOGGER.warning(
-                        "Undefined target temperature, falling back to %s",
-                        self._target_temp,
+                        "Unsafe initial output state (heater=%s, cooler=%s) – "
+                        "switching both off",
+                        heater_on,
+                        cooler_on,
                     )
-                else:
-                    self._target_temp = float(old_state.attributes[ATTR_TEMPERATURE])
-            if (
-                self.preset_modes
-                and old_state.attributes.get(ATTR_PRESET_MODE) in self.preset_modes
-            ):
-                self._attr_preset_mode = old_state.attributes.get(ATTR_PRESET_MODE)
-            if not self._hvac_mode and old_state.state:
-                self._hvac_mode = HVACMode(old_state.state)
+                    await self._switch_set(self.heater_entity_id, False)
+                    await self._switch_set(self.cooler_entity_id, False)
+                self._active_output = None
+                self._output_started = None
+            elif heater_on:
+                self._active_output = "heat"
+                self._output_started = dt_util.utcnow()
+            elif cooler_on:
+                self._active_output = "cool"
+                self._output_started = dt_util.utcnow()
 
-        else:
-            # No previous state, try and restore defaults
-            if self._target_temp is None:
-                if self._hvac_mode == HVACMode.COOL:
-                    self._target_temp = self.max_temp
-                else:
-                    self._target_temp = self.min_temp
-            _LOGGER.warning(
-                "No previously saved temperature, setting to %s", self._target_temp
-            )
+        self.async_write_ha_state()
+        await self._async_control()
 
-        # Set default state to off
-        if not self._hvac_mode:
-            self._hvac_mode = HVACMode.OFF
+    # ------------------------------------------------------------------ #
+    # Properties
+    # ------------------------------------------------------------------ #
 
     @property
     def precision(self) -> float:
         """Return the precision of the system."""
-        if self._temp_precision is not None:
-            return self._temp_precision
-        return super().precision
+        return self._resolution
 
     @property
     def target_temperature_step(self) -> float:
-        """Return the supported step of target temperature."""
-        if self._temp_target_temperature_step is not None:
-            return self._temp_target_temperature_step
-        # if a target_temperature_step is not defined, fallback to equal the precision
-        return self.precision
+        """Return the step of the target temperature."""
+        return self._resolution
 
     @property
     def current_temperature(self) -> float | None:
-        """Return the sensor temperature."""
+        """Return the current temperature."""
         return self._cur_temp
 
     @property
-    def hvac_mode(self) -> HVACMode | None:
-        """Return current operation."""
+    def hvac_mode(self) -> HVACMode:
+        """Return current operation mode."""
         return self._hvac_mode
 
     @property
     def hvac_action(self) -> HVACAction:
-        """Return the current running hvac operation if supported.
-
-        Need to be one of CURRENT_HVAC_*.
-        """
+        """Return the current running action (derived from the real outputs)."""
         if self._hvac_mode == HVACMode.OFF:
             return HVACAction.OFF
-        if not self._is_device_active:
-            return HVACAction.IDLE
-        if self._hvac_mode == HVACMode.COOL:
+        if self._switch_is_on(self.heater_entity_id):
+            return HVACAction.HEATING
+        if self._switch_is_on(self.cooler_entity_id):
             return HVACAction.COOLING
-
-        return HVACAction.HEATING
+        return HVACAction.IDLE
 
     @property
     def target_temperature(self) -> float | None:
-        """Return the temperature we try to reach."""
-        return self._target_temp
+        """Single setpoint shown in HEAT / COOL."""
+        if self._hvac_mode == HVACMode.HEAT:
+            return self._target_temp_heat
+        if self._hvac_mode == HVACMode.COOL:
+            return self._target_temp_cool
+        return None
 
-    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set hvac mode."""
-        if hvac_mode == HVACMode.HEAT:
-            self._hvac_mode = HVACMode.HEAT
-            await self._async_control_heating(force=True)
-        elif hvac_mode == HVACMode.COOL:
-            self._hvac_mode = HVACMode.COOL
-            await self._async_control_heating(force=True)
-        elif hvac_mode == HVACMode.OFF:
-            self._hvac_mode = HVACMode.OFF
-            if self._is_device_active:
-                await self._async_heater_turn_off()
-        else:
-            _LOGGER.error("Unrecognized hvac mode: %s", hvac_mode)
-            return
-        # Ensure we update the current operation after changing the mode
-        self.async_write_ha_state()
+    @property
+    def target_temperature_low(self) -> float | None:
+        """Heating setpoint (used by the range display in HEAT_COOL)."""
+        return self._target_temp_heat
 
-    async def async_set_temperature(self, **kwargs: Any) -> None:
-        """Set new target temperature."""
-        if (temperature := kwargs.get(ATTR_TEMPERATURE)) is None:
-            return
-        self._attr_preset_mode = self._presets_inv.get(temperature, PRESET_NONE)
-        self._target_temp = temperature
-        if (hvac_mode := kwargs.get(ATTR_HVAC_MODE)) is not None:
-            await self.async_set_hvac_mode(hvac_mode)
-            return
-        await self._async_control_heating(force=True)
-        self.async_write_ha_state()
+    @property
+    def target_temperature_high(self) -> float | None:
+        """Cooling setpoint (used by the range display in HEAT_COOL)."""
+        return self._target_temp_cool
 
     @property
     def min_temp(self) -> float:
         """Return the minimum temperature."""
         if self._min_temp is not None:
             return self._min_temp
-
-        # get default temp from super class
         return super().min_temp
 
     @property
@@ -470,61 +400,71 @@ class GenericThermostat(ClimateEntity, RestoreEntity):
         """Return the maximum temperature."""
         if self._max_temp is not None:
             return self._max_temp
-
-        # Get default temp from super class
         return super().max_temp
 
-    async def _async_sensor_changed(self, event: Event[EventStateChangedData]) -> None:
-        """Handle temperature changes."""
+    # ------------------------------------------------------------------ #
+    # Commands
+    # ------------------------------------------------------------------ #
+
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        """Set a new HVAC mode (Lastenheft 8.1 / 8.2)."""
+        if hvac_mode not in self._attr_hvac_modes:
+            _LOGGER.error("Unsupported HVAC mode: %s", hvac_mode)
+            return
+        self._hvac_mode = hvac_mode
+        # Voller Neubewertungs-Durchlauf; Ausgänge werden in _apply geschaltet.
+        await self._async_control()
+        self.async_write_ha_state()
+
+    async def async_set_temperature(self, **kwargs: Any) -> None:
+        """Set new target temperature(s)."""
+        low = kwargs.get(ATTR_TARGET_TEMP_LOW)
+        high = kwargs.get(ATTR_TARGET_TEMP_HIGH)
+        single = kwargs.get(ATTR_TEMPERATURE)
+
+        if low is not None and high is not None:
+            self._target_temp_heat = self._round(low)
+            self._target_temp_cool = self._round(high)
+        elif single is not None:
+            if self._hvac_mode == HVACMode.HEAT:
+                self._target_temp_heat = self._round(single)
+            elif self._hvac_mode == HVACMode.COOL:
+                self._target_temp_cool = self._round(single)
+            else:
+                return
+        else:
+            return
+
+        # Phase 5: hier wird die DDZ erzwungen (Auto-Nachziehen).
+        await self._async_control()
+        self.async_write_ha_state()
+
+    # ------------------------------------------------------------------ #
+    # Sensor / switch events
+    # ------------------------------------------------------------------ #
+
+    async def _async_sensor_changed(
+        self, event: Event[EventStateChangedData]
+    ) -> None:
+        """Handle temperature sensor updates."""
         new_state = event.data["new_state"]
         if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             return
-
-        self.async_set_context(event.context)
         self._async_update_temp(new_state)
-        await self._async_control_heating()
+        self.async_set_context(event.context)
+        await self._async_control()
         self.async_write_ha_state()
-
-    async def _check_switch_initial_state(self) -> None:
-        """Prevent the device from keep running if HVACMode.OFF."""
-        if self._hvac_mode == HVACMode.OFF and self._is_device_active:
-            _LOGGER.warning(
-                (
-                    "The climate mode is OFF, but the switch device is ON. Turning off"
-                    " device %s"
-                ),
-                self.heater_entity_id,
-            )
-            await self._async_heater_turn_off()
 
     @callback
     def _async_switch_changed(self, event: Event[EventStateChangedData]) -> None:
-        """Handle heater switch state changes."""
-        new_state = event.data["new_state"]
-        old_state = event.data["old_state"]
-        if new_state is None:
+        """Refresh state when a switch changes (no re-control, avoids loops)."""
+        if event.data["new_state"] is None:
             return
-        if old_state is None:
-            self.hass.async_create_task(
-                self._check_switch_initial_state(), eager_start=True
-            )
-
-        # Update timestamp on toggle
-        self._last_toggled_time = new_state.last_changed
-
-        # If the user toggles the switch, assume they want control and clear the timers.
-        # Note: If a manual interaction occurs within the 2s context window of a switch
-        # toggle initiated by us, we may not detect manual control. Users are advised to
-        # use the climate entity for reliable control, not the switch entity.
-        if new_state.context.id != self._last_context_id:
-            _LOGGER.debug("External switch change detected, clearing timers")
-            self._last_context_id = None
-            self._cancel_timers()
         self.async_write_ha_state()
 
     @callback
     def _async_update_temp(self, state: State) -> None:
-        """Update thermostat with latest state from sensor."""
+        """Update the current temperature from the sensor."""
         try:
             cur_temp = float(state.state)
             if not math.isfinite(cur_temp):
@@ -533,215 +473,280 @@ class GenericThermostat(ClimateEntity, RestoreEntity):
         except ValueError as ex:
             _LOGGER.error("Unable to update from sensor: %s", ex)
 
-    async def _async_control_heating(
-        self, _time: datetime | None = None, force: bool = False
-    ) -> None:
-        """Check if we need to turn heating on or off."""
-        called_by_timer = _time is not None
+    async def _async_control_keepalive(self, _now: datetime | None = None) -> None:
+        """Keep-alive tick (re-assert the current output)."""
+        await self._async_control(keepalive=True)
 
+    # ------------------------------------------------------------------ #
+    # Regelung: Entscheidung (_evaluate) + Umsetzung (_apply)
+    # ------------------------------------------------------------------ #
+
+    async def _async_control(self, *, keepalive: bool = False) -> None:
+        """Re-evaluate and apply the control decision."""
         async with self._temp_lock:
-            if not self._active and None not in (
-                self._cur_temp,
-                self._target_temp,
-            ):
+            if not self._active and self._cur_temp is not None:
                 self._active = True
-                _LOGGER.debug(
-                    (
-                        "Obtained current and target temperature. "
-                        "Generic thermostat active. %s, %s"
-                    ),
-                    self._cur_temp,
-                    self._target_temp,
-                )
 
-            if not self._active or self._hvac_mode == HVACMode.OFF:
+            if self._hvac_mode == HVACMode.OFF:
+                # OFF schaltet sofort ab (Lastenheft 2.1) – die Mindestlaufzeit
+                # wird hier bewusst nicht abgewartet.
+                self._cancel_start_delay()
+                if self._active_output is not None:
+                    await self._switch_off_active()
+                else:
+                    await self._switch_set(self.heater_entity_id, False)
+                    await self._switch_set(self.cooler_entity_id, False)
                 return
 
-            if force and called_by_timer and self.max_cycle_duration:
-                # We were invoked due to `max_cycle_duration`, so turn off
-                _LOGGER.debug(
-                    "Turning off heater %s due to max cycle time of %s",
-                    self.heater_entity_id,
-                    self.max_cycle_duration,
-                )
-                self._cancel_cycle_timer()
-                await self._async_heater_turn_off()
+            if not self._active or self._cur_temp is None:
                 return
 
-            assert self._cur_temp is not None and self._target_temp is not None
-            too_cold = self._target_temp > self._cur_temp + self._cold_tolerance
-            too_hot = self._target_temp < self._cur_temp - self._hot_tolerance
-            now = dt_util.utcnow()
+            decision = self._evaluate()
+            await self._apply(decision, keepalive=keepalive)
 
-            if self._hvac_mode == HVACMode.HEAT:
-                should_turn_on = too_cold
-                should_turn_off = too_hot
-            elif self._hvac_mode == HVACMode.COOL:
-                should_turn_on = too_hot
-                should_turn_off = too_cold
-            else:
-                return
+    def _evaluate(self) -> Decision:
+        """Pure decision: heating / cooling / idle (Lastenheft 2 + 6).
 
-            if self._is_device_active:
-                if should_turn_off:
-                    # Make sure it's past the `min_cycle_duration` before turning off
-                    if (
-                        self._last_toggled_time + self.min_cycle_duration <= now
-                        or force
-                    ):
-                        _LOGGER.debug("Turning off heater %s", self.heater_entity_id)
-                        await self._async_heater_turn_off()
-                    elif self._check_callback is None:
-                        _LOGGER.debug(
-                            "Minimum cycle time not reached, check again at %s",
-                            self._last_toggled_time + self.min_cycle_duration,
-                        )
-                        self._check_callback = async_call_later(
-                            self.hass,
-                            now - self._last_toggled_time + self.min_cycle_duration,
-                            self._async_timer_control_heating,
-                        )
-                elif called_by_timer:
-                    # This is a keep-alive call, so ensure it's on
-                    _LOGGER.debug(
-                        "Keep-alive - Turning on heater %s",
-                        self.heater_entity_id,
-                    )
-                    await self._async_heater_turn_on(keepalive=True)
-            elif should_turn_on:
-                # Make sure it's past the `cycle_cooldown` before turning on
-                if self._last_toggled_time + self.cycle_cooldown <= now or force:
-                    _LOGGER.debug("Turning on heater %s", self.heater_entity_id)
-                    await self._async_heater_turn_on()
-                elif self._check_callback is None:
-                    _LOGGER.debug(
-                        "Cooldown time not reached, check again at %s",
-                        self._last_toggled_time + self.cycle_cooldown,
-                    )
-                    self._check_callback = async_call_later(
-                        self.hass,
-                        now - self._last_toggled_time + self.cycle_cooldown,
-                        self._async_timer_control_heating,
-                    )
-            elif called_by_timer:
-                # This is a keep-alive call, so ensure it's off
-                _LOGGER.debug(
-                    "Keep-alive - Turning off heater %s", self.heater_entity_id
-                )
-                await self._async_heater_turn_off(keepalive=True)
+        External enables/offsets are applied here – the single, defined point
+        where external requests influence the decision.
+        """
+        cur = self._cur_temp
+        if cur is None:
+            return "idle"
 
-    @property
-    def _is_device_active(self) -> bool | None:
-        """If the toggleable device is currently active."""
-        if not self.hass.states.get(self.heater_entity_id):
-            return None
+        if self._hvac_mode == HVACMode.HEAT:
+            return self._eval_heat(cur)
+        if self._hvac_mode == HVACMode.COOL:
+            return self._eval_cool(cur)
+        # HEAT_COOL-Dispatcher: Phase 6.
+        return "idle"
 
-        return self.hass.states.is_state(self.heater_entity_id, STATE_ON)
+    def _eval_heat(self, cur: float) -> Decision:
+        """Heating hysteresis using the heat setpoint (+ external offset)."""
+        if not self._ext_heat_enable or self._target_temp_heat is None:
+            return "idle"
+        setpoint = self._target_temp_heat + self._ext_heat_offset
+        if self._active_output == "heat":
+            # Läuft – erst bei Überschreiten der AUS-Schwelle stoppen.
+            if cur > setpoint + self._heat_off_tol:
+                return "idle"
+            return "heat"
+        # Steht – erst bei Unterschreiten der EIN-Schwelle starten.
+        if cur < setpoint - self._heat_on_tol:
+            return "heat"
+        return "idle"
 
-    def _get_current_context(self) -> Context | None:
-        """Return the current context if it is still recent, or None."""
-        if (
-            self._context_set is not None
-            and time.time() - self._context_set > CONTEXT_RECENT_TIME_SECONDS
+    def _eval_cool(self, cur: float) -> Decision:
+        """Cooling hysteresis using the cool setpoint (+ external offset)."""
+        if not self._ext_cool_enable or self._target_temp_cool is None:
+            return "idle"
+        setpoint = self._target_temp_cool + self._ext_cool_offset
+        if self._active_output == "cool":
+            if cur < setpoint - self._cool_off_tol:
+                return "idle"
+            return "cool"
+        if cur > setpoint + self._cool_on_tol:
+            return "cool"
+        return "idle"
+
+    async def _apply(self, decision: Decision, *, keepalive: bool) -> None:
+        """Apply a decision following the order from Lastenheft 8.2."""
+        target: Output | None = None if decision == "idle" else decision
+
+        # Veraltete Startverzögerung verwerfen, wenn das Ziel sich geändert hat.
+        if self._pending_start_output is not None and (
+            self._pending_start_output != target
         ):
-            self._context = None
-            self._context_set = None
-        return self._context
+            self._cancel_start_delay()
 
-    async def _async_heater_turn_on(self, keepalive: bool = False) -> None:
-        """Turn heater toggleable device on."""
-        data = {ATTR_ENTITY_ID: self.heater_entity_id}
-        # Create a child context for the switch service call so we can
-        # identify the resulting state change event as originating from us.
-        # Don't set it as our own context — the climate entity's state changes
-        # should remain attributed to the parent context (e.g., set_hvac_mode).
-        current_context = self._get_current_context()
-        new_context = Context(parent_id=current_context.id if current_context else None)
-        self._last_context_id = new_context.id
-        await self.hass.services.async_call(
-            HOMEASSISTANT_DOMAIN, SERVICE_TURN_ON, data, context=new_context
-        )
-        if not keepalive:
-            # Update timestamp on turn on
-            self._last_toggled_time = dt_util.utcnow()
-            self._cancel_check_timer()
-            if self.max_cycle_duration:
-                _LOGGER.debug(
-                    "Scheduling maximum run-time shut-off for %s",
-                    self._last_toggled_time + self.max_cycle_duration,
-                )
-                self._cancel_cycle_timer()
-                self._cycle_callback = async_call_later(
-                    self.hass,
-                    self.max_cycle_duration,
-                    partial(self._async_control_heating, force=True),
-                )
-
-    async def _async_heater_turn_off(self, keepalive: bool = False) -> None:
-        """Turn heater toggleable device off."""
-        data = {ATTR_ENTITY_ID: self.heater_entity_id}
-        # Create a child context for the switch service call so we can
-        # identify the resulting state change event as originating from us.
-        # Don't set it as our own context — the climate entity's state changes
-        # should remain attributed to the parent context (e.g., set_hvac_mode).
-        current_context = self._get_current_context()
-        new_context = Context(parent_id=current_context.id if current_context else None)
-        self._last_context_id = new_context.id
-        await self.hass.services.async_call(
-            HOMEASSISTANT_DOMAIN, SERVICE_TURN_OFF, data, context=new_context
-        )
-        if not keepalive:
-            # Update timestamp on turn off
-            self._last_toggled_time = dt_util.utcnow()
-            self._cancel_timers()
-
-    async def async_set_preset_mode(self, preset_mode: str) -> None:
-        """Set new preset mode."""
-        if preset_mode not in (self.preset_modes or []):
-            raise ValueError(
-                f"Got unsupported preset_mode {preset_mode}. Must be one of"
-                f" {self.preset_modes}"
-            )
-        if preset_mode == self._attr_preset_mode:
-            # I don't think we need to call async_write_ha_state
-            # if we didn't change the state
+        # Kein Wechsel der Anforderung.
+        if self._active_output == target:
+            if keepalive and target is not None:
+                await self._reassert_output(target)
             return
-        if preset_mode == PRESET_NONE:
-            self._attr_preset_mode = PRESET_NONE
-            self._target_temp = self._saved_target_temp
-            await self._async_control_heating(force=True)
-        else:
-            if self._attr_preset_mode == PRESET_NONE:
-                self._saved_target_temp = self._target_temp
-            self._attr_preset_mode = preset_mode
-            self._target_temp = self._presets[preset_mode]
-            await self._async_control_heating(force=True)
 
+        # 2./3. Mindestlaufzeit + Verriegelung: laufenden Ausgang ggf. abschalten.
+        if self._active_output is not None:
+            if not self._min_runtime_elapsed(self._active_output):
+                self._schedule_min_runtime_recheck(self._active_output)
+                return
+            await self._switch_off_active()
+
+        if target is None:
+            return
+
+        # 4. Startverzögerung: erst nach Ablauf + erneuter Bewertung schalten.
+        if self._start_delay > timedelta():
+            if self._pending_start_output != target:
+                self._cancel_start_delay()
+                self._pending_start_output = target
+                self._start_delay_unsub = async_call_later(
+                    self.hass, self._start_delay, self._async_start_delay_fired
+                )
+                _LOGGER.debug(
+                    "Start delay %s before switching on %s output",
+                    self._start_delay,
+                    target,
+                )
+            return
+
+        # 5. Schaltentscheidung.
+        await self._switch_on(target)
+
+    async def _async_start_delay_fired(self, _now: datetime | None = None) -> None:
+        """After the start delay: re-evaluate, switch on only if still demanded."""
+        self._start_delay_unsub = None
+        target = self._pending_start_output
+        self._pending_start_output = None
+        if target is None:
+            return
+        async with self._temp_lock:
+            if self._hvac_mode == HVACMode.OFF or self._cur_temp is None:
+                return
+            if self._evaluate() == target and self._active_output is None:
+                await self._switch_on(target)
+
+    # ------------------------------------------------------------------ #
+    # Ausgänge schalten (mit Verriegelung) + Laufzeit-Timer
+    # ------------------------------------------------------------------ #
+
+    async def _switch_on(self, output: Output) -> None:
+        """Turn the requested output on after ensuring the other is off (4.1)."""
+        other_entity = (
+            self.cooler_entity_id if output == "heat" else self.heater_entity_id
+        )
+        this_entity = (
+            self.heater_entity_id if output == "heat" else self.cooler_entity_id
+        )
+        # Verriegelung: immer zuerst den anderen Ausgang ausschalten.
+        await self._switch_set(other_entity, False)
+        await self._switch_set(this_entity, True)
+        self._active_output = output
+        self._output_started = dt_util.utcnow()
+        self._cancel_min_runtime_recheck()
+        self._schedule_max_runtime()
         self.async_write_ha_state()
 
-    async def _async_timer_control_heating(self, _: datetime | None = None) -> None:
-        """Reset check timer and control heating."""
-        self._check_callback = None
-        await self._async_control_heating()
+    async def _switch_off_active(self) -> None:
+        """Turn off whichever output is currently active."""
+        await self._switch_set(self.heater_entity_id, False)
+        await self._switch_set(self.cooler_entity_id, False)
+        self._active_output = None
+        self._output_started = None
+        self._cancel_max_runtime()
+        self.async_write_ha_state()
+
+    async def _reassert_output(self, output: Output) -> None:
+        """Keep-alive: re-send the ON command to the active output."""
+        entity = self.heater_entity_id if output == "heat" else self.cooler_entity_id
+        await self._switch_set(entity, True, force=True)
+
+    async def _switch_set(
+        self, entity_id: str, turn_on: bool, *, force: bool = False
+    ) -> None:
+        """Call switch.turn_on/off, skipping redundant calls unless forced."""
+        is_on = self._switch_is_on(entity_id)
+        if not force and (turn_on == is_on):
+            return
+        service = SERVICE_TURN_ON if turn_on else SERVICE_TURN_OFF
+        await self.hass.services.async_call(
+            HOMEASSISTANT_DOMAIN,
+            service,
+            {ATTR_ENTITY_ID: entity_id},
+            context=self._context,
+        )
+
+    def _switch_is_on(self, entity_id: str) -> bool:
+        """Return True if the given switch entity is on."""
+        return self.hass.states.is_state(entity_id, STATE_ON)
+
+    # --- Mindestlaufzeit (Lastenheft 8.3) ---
+
+    def _min_runtime(self, output: Output) -> timedelta:
+        return self._min_dur_heat if output == "heat" else self._min_dur_cool
+
+    def _min_runtime_elapsed(self, output: Output) -> bool:
+        min_dur = self._min_runtime(output)
+        if not min_dur or self._output_started is None:
+            return True
+        return dt_util.utcnow() >= self._output_started + min_dur
+
+    def _schedule_min_runtime_recheck(self, output: Output) -> None:
+        if self._min_runtime_unsub is not None or self._output_started is None:
+            return
+        remaining = (self._output_started + self._min_runtime(output)) - dt_util.utcnow()
+        if remaining <= timedelta():
+            return
+        _LOGGER.debug("Minimum runtime not reached, re-check in %s", remaining)
+        self._min_runtime_unsub = async_call_later(
+            self.hass, remaining, self._async_min_runtime_fired
+        )
+
+    async def _async_min_runtime_fired(self, _now: datetime | None = None) -> None:
+        self._min_runtime_unsub = None
+        await self._async_control()
+
+    # --- Höchstlaufzeit (Lastenheft 7.2) ---
+
+    def _schedule_max_runtime(self) -> None:
+        if not self._max_cycle_duration:
+            return
+        self._cancel_max_runtime()
+        _LOGGER.debug("Scheduling max-runtime shut-off in %s", self._max_cycle_duration)
+        self._max_runtime_unsub = async_call_later(
+            self.hass, self._max_cycle_duration, self._async_max_runtime_fired
+        )
+
+    async def _async_max_runtime_fired(self, _now: datetime | None = None) -> None:
+        self._max_runtime_unsub = None
+        async with self._temp_lock:
+            if self._active_output is not None:
+                _LOGGER.debug("Max runtime reached – switching output off")
+                await self._switch_off_active()
+
+    # --- Timer-Aufräumen ---
 
     @callback
-    def _cancel_check_timer(self) -> None:
-        """Reset check timer."""
-        if self._check_callback:
-            _LOGGER.debug("Cancelling scheduled state check")
-            self._check_callback()
-            self._check_callback = None
+    def _cancel_start_delay(self) -> None:
+        if self._start_delay_unsub is not None:
+            self._start_delay_unsub()
+            self._start_delay_unsub = None
+        self._pending_start_output = None
 
     @callback
-    def _cancel_cycle_timer(self) -> None:
-        """Reset cycle timer."""
-        if self._cycle_callback:
-            _LOGGER.debug("Cancelling scheduled shut-off")
-            self._cycle_callback()
-            self._cycle_callback = None
+    def _cancel_min_runtime_recheck(self) -> None:
+        if self._min_runtime_unsub is not None:
+            self._min_runtime_unsub()
+            self._min_runtime_unsub = None
+
+    @callback
+    def _cancel_max_runtime(self) -> None:
+        if self._max_runtime_unsub is not None:
+            self._max_runtime_unsub()
+            self._max_runtime_unsub = None
 
     @callback
     def _cancel_timers(self) -> None:
-        """Reset timers."""
-        self._cancel_check_timer()
-        self._cancel_cycle_timer()
+        self._cancel_start_delay()
+        self._cancel_min_runtime_recheck()
+        self._cancel_max_runtime()
+
+    # ------------------------------------------------------------------ #
+    # Hilfsfunktionen
+    # ------------------------------------------------------------------ #
+
+    def _round(self, value: float | None) -> float | None:
+        """Round to the configured resolution and clamp to min/max."""
+        if value is None:
+            return None
+        step = self._resolution
+        rounded = round(round(value / step) * step, 2)
+        return min(max(rounded, self.min_temp), self.max_temp)
+
+
+def _to_float(value: Any) -> float | None:
+    """Best-effort float conversion for restored attributes."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None

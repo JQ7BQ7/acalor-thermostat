@@ -1,11 +1,12 @@
 {
   "domain": "acalor_thermostat",
   "name": "Acalor Thermostat",
-  "version": "0.0.1",
-  "codeowners": [],
+  "version": "0.2.0",
+  "codeowners": ["@JQ7BQ7"],
   "config_flow": true,
   "dependencies": ["sensor", "switch"],
-  "documentation": "https://www.home-assistant.io/integrations/generic_thermostat",
+  "documentation": "https://github.com/JQ7BQ7/acalor-thermostat",
+  "issue_tracker": "https://github.com/JQ7BQ7/acalor-thermostat/issues",
   "integration_type": "helper",
   "iot_class": "local_polling",
   "quality_scale": "internal"

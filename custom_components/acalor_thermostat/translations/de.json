@@ -1,100 +1,98 @@
 {
-    "config": {
-        "error": {
-            "min_max_runtime": "Die Mindestlaufzeit muss unter der H\u00f6chstlaufzeit liegen."
+  "title": "Acalor Thermostat",
+  "config": {
+    "error": {
+      "same_switch": "Heiz- und Kühlschalter müssen unterschiedliche Entitäten sein.",
+      "min_max_runtime": "Die Mindestlaufzeit muss kürzer als die Höchstlaufzeit sein."
+    },
+    "step": {
+      "user": {
+        "title": "Acalor Thermostat erstellen",
+        "description": "Klima-Entität mit getrennten Heiz- und Kühl-Solltemperaturen, die über zwei Schalter und einen Temperatursensor regelt.",
+        "data": {
+          "name": "Name",
+          "target_sensor": "Temperatursensor",
+          "heater": "Heizschalter",
+          "cooler": "Kühlschalter",
+          "dead_zone": "Dynamic Dead Zone (DDZ)",
+          "heat_on_tolerance": "Heizung-EIN-Toleranz",
+          "heat_off_tolerance": "Heizung-AUS-Toleranz",
+          "cool_on_tolerance": "Kühlung-EIN-Toleranz",
+          "cool_off_tolerance": "Kühlung-AUS-Toleranz",
+          "resolution": "Temperaturauflösung",
+          "start_delay": "Startverzögerung",
+          "min_cycle_duration_heat": "Mindestlaufzeit (Heizen)",
+          "min_cycle_duration_cool": "Mindestlaufzeit (Kühlen)",
+          "max_cycle_duration": "Höchstlaufzeit",
+          "keep_alive": "Keep-alive-Intervall",
+          "min_temp": "Minimale Soll-Temperatur",
+          "max_temp": "Maximale Soll-Temperatur",
+          "target_temp_heat": "Anfangs-Heiz-Sollwert",
+          "target_temp_cool": "Anfangs-Kühl-Sollwert"
         },
-        "step": {
-            "presets": {
-                "data": {
-                    "activity_temp": "Aktivit\u00e4t",
-                    "away_temp": "Abwesend",
-                    "comfort_temp": "Komfort",
-                    "eco_temp": "Eco",
-                    "home_temp": "Zuhause",
-                    "sleep_temp": "Schlafen"
-                },
-                "title": "Temperatur-Voreinstellungen"
-            },
-            "user": {
-                "data": {
-                    "ac_mode": "K\u00fchlbetrieb",
-                    "cold_tolerance": "K\u00e4ltetoleranz",
-                    "cycle_cooldown": "Abk\u00fchlzeit nach dem Betrieb",
-                    "heater": "Stellschalter",
-                    "hot_tolerance": "Hitzetoleranz",
-                    "keep_alive": "Keep-alive-Intervall",
-                    "max_cycle_duration": "H\u00f6chstlaufzeit",
-                    "max_temp": "Maximale Soll-Temperatur",
-                    "min_cycle_duration": "Mindestlaufzeit",
-                    "min_temp": "Minimale Soll-Temperatur",
-                    "name": "Name",
-                    "target_sensor": "Temperatursensor"
-                },
-                "data_description": {
-                    "ac_mode": "Betreibt den ausgew\u00e4hlten Stellschalter als K\u00fchlger\u00e4t statt als Heizger\u00e4t.",
-                    "cold_tolerance": "N\u00f6tige Mindestdifferenz zwischen der vom Sensor gemessenen Ist-Temperatur und der Soll-Temperatur, bevor die Heizung eingeschaltet wird. Betr\u00e4gt die Soll-Temperatur beispielsweise 25 und die Toleranz 0,5, startet der Heizvorgang, wenn der Sensor 24,5 unterschreitet.",
-                    "cycle_cooldown": "Mindestzeit, die nach dem Ausschalten vergehen muss, bevor es wieder eingeschaltet werden kann.",
-                    "heater": "Schalter-Entit\u00e4t zum K\u00fchlen oder Heizen, je nach Klimamodus.",
-                    "hot_tolerance": "N\u00f6tige Mindestdifferenz zwischen der vom Sensor gemessenen Ist-Temperatur und der Soll-Temperatur, bevor die Heizung ausgeschaltet wird. Betr\u00e4gt die Soll-Temperatur beispielsweise 25 und die Toleranz 0,5, stoppt der Heizvorgang, wenn der Sensorwert 25,5 erreicht oder \u00fcberschreitet.",
-                    "keep_alive": "Die Heizung regelm\u00e4\u00dfig aktivieren, um zu verhindern, dass Ger\u00e4te ihren Zustand verlieren.",
-                    "max_cycle_duration": "Die maximale Zeitspanne, die nach dem Einschalten vergehen darf, bevor es wieder ausgeschaltet wird.",
-                    "min_cycle_duration": "Die minimale Zeitspanne, die nach dem Einschalten vergehen muss, bevor es wieder ausgeschaltet werden kann.",
-                    "target_sensor": "Temperatursensor, der die Ist-Temperatur abbildet."
-                },
-                "description": "Erstellt eine Klima-Entit\u00e4t, die die Temperatur \u00fcber einen Stellschalter und einen Sensor regelt.",
-                "title": "Generischen Thermostat erstellen"
-            }
+        "data_description": {
+          "target_sensor": "Temperatursensor, der die Ist-Temperatur abbildet.",
+          "heater": "Schalter-Entität, die den Heizausgang ansteuert.",
+          "cooler": "Schalter-Entität, die den Kühlausgang ansteuert. Heizen und Kühlen sind nie gleichzeitig aktiv.",
+          "dead_zone": "Mindestabstand, der stets zwischen Heiz- und Kühl-Sollwert bleiben muss (Kühl-Sollwert >= Heiz-Sollwert + DDZ).",
+          "heat_on_tolerance": "Heizen schaltet EIN, wenn die Temperatur um diesen Wert unter den Heiz-Sollwert fällt.",
+          "heat_off_tolerance": "Heizen schaltet AUS, wenn die Temperatur um diesen Wert über den Heiz-Sollwert steigt.",
+          "cool_on_tolerance": "Kühlen schaltet EIN, wenn die Temperatur um diesen Wert über den Kühl-Sollwert steigt.",
+          "cool_off_tolerance": "Kühlen schaltet AUS, wenn die Temperatur um diesen Wert unter den Kühl-Sollwert fällt.",
+          "resolution": "Schrittweite für alle Temperaturwerte.",
+          "start_delay": "Verzögerung, bevor ein Ausgang eingeschaltet wird. Nach Ablauf wird die Anforderung erneut bewertet und nur ausgeführt, wenn sie weiterhin besteht.",
+          "min_cycle_duration_heat": "Wenn Heizen läuft, die Mindestzeit, bevor es wieder ausschalten darf.",
+          "min_cycle_duration_cool": "Wenn Kühlen läuft, die Mindestzeit, bevor es wieder ausschalten darf.",
+          "max_cycle_duration": "Wenn ein Ausgang läuft, die maximale Zeit, bevor er ausgeschaltet wird.",
+          "keep_alive": "Sendet den Schaltbefehl regelmäßig erneut, damit Geräte ihren Zustand nicht verlieren."
         }
+      }
+    }
+  },
+  "options": {
+    "error": {
+      "same_switch": "[%key:component::acalor_thermostat::config::error::same_switch%]",
+      "min_max_runtime": "[%key:component::acalor_thermostat::config::error::min_max_runtime%]"
     },
-    "options": {
-        "error": {
-            "min_max_runtime": "Die Mindestlaufzeit muss unter der H\u00f6chstlaufzeit liegen."
+    "step": {
+      "init": {
+        "data": {
+          "target_sensor": "[%key:component::acalor_thermostat::config::step::user::data::target_sensor%]",
+          "heater": "[%key:component::acalor_thermostat::config::step::user::data::heater%]",
+          "cooler": "[%key:component::acalor_thermostat::config::step::user::data::cooler%]",
+          "dead_zone": "[%key:component::acalor_thermostat::config::step::user::data::dead_zone%]",
+          "heat_on_tolerance": "[%key:component::acalor_thermostat::config::step::user::data::heat_on_tolerance%]",
+          "heat_off_tolerance": "[%key:component::acalor_thermostat::config::step::user::data::heat_off_tolerance%]",
+          "cool_on_tolerance": "[%key:component::acalor_thermostat::config::step::user::data::cool_on_tolerance%]",
+          "cool_off_tolerance": "[%key:component::acalor_thermostat::config::step::user::data::cool_off_tolerance%]",
+          "resolution": "[%key:component::acalor_thermostat::config::step::user::data::resolution%]",
+          "start_delay": "[%key:component::acalor_thermostat::config::step::user::data::start_delay%]",
+          "min_cycle_duration_heat": "[%key:component::acalor_thermostat::config::step::user::data::min_cycle_duration_heat%]",
+          "min_cycle_duration_cool": "[%key:component::acalor_thermostat::config::step::user::data::min_cycle_duration_cool%]",
+          "max_cycle_duration": "[%key:component::acalor_thermostat::config::step::user::data::max_cycle_duration%]",
+          "keep_alive": "[%key:component::acalor_thermostat::config::step::user::data::keep_alive%]",
+          "min_temp": "[%key:component::acalor_thermostat::config::step::user::data::min_temp%]",
+          "max_temp": "[%key:component::acalor_thermostat::config::step::user::data::max_temp%]",
+          "target_temp_heat": "[%key:component::acalor_thermostat::config::step::user::data::target_temp_heat%]",
+          "target_temp_cool": "[%key:component::acalor_thermostat::config::step::user::data::target_temp_cool%]"
         },
-        "step": {
-            "init": {
-                "data": {
-                    "ac_mode": "K\u00fchlbetrieb",
-                    "cold_tolerance": "K\u00e4ltetoleranz",
-                    "cycle_cooldown": "Abk\u00fchlzeit nach dem Betrieb",
-                    "heater": "Stellschalter",
-                    "hot_tolerance": "Hitzetoleranz",
-                    "keep_alive": "Keep-alive-Intervall",
-                    "max_cycle_duration": "H\u00f6chstlaufzeit",
-                    "max_temp": "Maximale Soll-Temperatur",
-                    "min_cycle_duration": "Mindestlaufzeit",
-                    "min_temp": "Minimale Soll-Temperatur",
-                    "target_sensor": "Temperatursensor"
-                },
-                "data_description": {
-                    "ac_mode": "Betreibt den ausgew\u00e4hlten Stellschalter als K\u00fchlger\u00e4t statt als Heizger\u00e4t.",
-                    "cold_tolerance": "N\u00f6tige Mindestdifferenz zwischen der vom Sensor gemessenen Ist-Temperatur und der Soll-Temperatur, bevor die Heizung eingeschaltet wird. Betr\u00e4gt die Soll-Temperatur beispielsweise 25 und die Toleranz 0,5, startet der Heizvorgang, wenn der Sensor 24,5 unterschreitet.",
-                    "cycle_cooldown": "Mindestzeit, die nach dem Ausschalten vergehen muss, bevor es wieder eingeschaltet werden kann.",
-                    "heater": "Schalter-Entit\u00e4t zum K\u00fchlen oder Heizen, je nach Klimamodus.",
-                    "hot_tolerance": "N\u00f6tige Mindestdifferenz zwischen der vom Sensor gemessenen Ist-Temperatur und der Soll-Temperatur, bevor die Heizung ausgeschaltet wird. Betr\u00e4gt die Soll-Temperatur beispielsweise 25 und die Toleranz 0,5, stoppt der Heizvorgang, wenn der Sensorwert 25,5 erreicht oder \u00fcberschreitet.",
-                    "keep_alive": "Die Heizung regelm\u00e4\u00dfig aktivieren, um zu verhindern, dass Ger\u00e4te ihren Zustand verlieren.",
-                    "max_cycle_duration": "Die maximale Zeitspanne, die nach dem Einschalten vergehen darf, bevor es wieder ausgeschaltet wird.",
-                    "min_cycle_duration": "Die minimale Zeitspanne, die nach dem Einschalten vergehen muss, bevor es wieder ausgeschaltet werden kann.",
-                    "target_sensor": "Temperatursensor, der die Ist-Temperatur abbildet."
-                }
-            },
-            "presets": {
-                "data": {
-                    "activity_temp": "Aktivit\u00e4t",
-                    "away_temp": "Abwesend",
-                    "comfort_temp": "Komfort",
-                    "eco_temp": "Eco",
-                    "home_temp": "Zuhause",
-                    "sleep_temp": "Schlafen"
-                },
-                "title": "Temperatur-Voreinstellungen"
-            }
+        "data_description": {
+          "target_sensor": "[%key:component::acalor_thermostat::config::step::user::data_description::target_sensor%]",
+          "heater": "[%key:component::acalor_thermostat::config::step::user::data_description::heater%]",
+          "cooler": "[%key:component::acalor_thermostat::config::step::user::data_description::cooler%]",
+          "dead_zone": "[%key:component::acalor_thermostat::config::step::user::data_description::dead_zone%]",
+          "heat_on_tolerance": "[%key:component::acalor_thermostat::config::step::user::data_description::heat_on_tolerance%]",
+          "heat_off_tolerance": "[%key:component::acalor_thermostat::config::step::user::data_description::heat_off_tolerance%]",
+          "cool_on_tolerance": "[%key:component::acalor_thermostat::config::step::user::data_description::cool_on_tolerance%]",
+          "cool_off_tolerance": "[%key:component::acalor_thermostat::config::step::user::data_description::cool_off_tolerance%]",
+          "resolution": "[%key:component::acalor_thermostat::config::step::user::data_description::resolution%]",
+          "start_delay": "[%key:component::acalor_thermostat::config::step::user::data_description::start_delay%]",
+          "min_cycle_duration_heat": "[%key:component::acalor_thermostat::config::step::user::data_description::min_cycle_duration_heat%]",
+          "min_cycle_duration_cool": "[%key:component::acalor_thermostat::config::step::user::data_description::min_cycle_duration_cool%]",
+          "max_cycle_duration": "[%key:component::acalor_thermostat::config::step::user::data_description::max_cycle_duration%]",
+          "keep_alive": "[%key:component::acalor_thermostat::config::step::user::data_description::keep_alive%]"
         }
-    },
-    "services": {
-        "reload": {
-            "description": "L\u00e4dt generische Thermostate aus der YAML-Konfiguration neu.",
-            "name": "Generische Thermostate neu laden"
-        }
-    },
-    "title": "Generischer Thermostat"
+      }
+    }
+  }
 }
