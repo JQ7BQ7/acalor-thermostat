@@ -365,13 +365,18 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
 
     @property
     def hvac_action(self) -> HVACAction:
-        """Return the current running action (derived from the real outputs)."""
-        if self._hvac_mode == HVACMode.OFF:
-            return HVACAction.OFF
+        """Return the current running action (derived from the real outputs).
+
+        Der reale Schalterzustand hat Vorrang: Während der OFF-Entprellung läuft
+        der Ausgang noch, also wird weiterhin heating/cooling angezeigt – erst
+        wenn der Schalter tatsächlich aus ist, gilt OFF.
+        """
         if self._switch_is_on(self.heater_entity_id):
             return HVACAction.HEATING
         if self._switch_is_on(self.cooler_entity_id):
             return HVACAction.COOLING
+        if self._hvac_mode == HVACMode.OFF:
+            return HVACAction.OFF
         return HVACAction.IDLE
 
     @property
