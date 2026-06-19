@@ -72,6 +72,7 @@ from .const import (
     CONF_MIN_DUR_COOL,
     CONF_MIN_DUR_HEAT,
     CONF_MIN_TEMP,
+    CONF_MODE_CHANGE_DELAY,
     CONF_RESOLUTION,
     CONF_SENSOR,
     CONF_START_DELAY,
@@ -129,6 +130,7 @@ async def async_setup_entry(
                 min_dur_cool=_as_timedelta(options.get(CONF_MIN_DUR_COOL)),
                 max_cycle_duration=_as_timedelta(options.get(CONF_MAX_DUR)),
                 start_delay=_as_timedelta(options.get(CONF_START_DELAY)),
+                mode_change_delay=_as_timedelta(options.get(CONF_MODE_CHANGE_DELAY)),
                 keep_alive=_as_timedelta(options.get(CONF_KEEP_ALIVE)),
                 min_temp=options.get(CONF_MIN_TEMP),
                 max_temp=options.get(CONF_MAX_TEMP),
@@ -164,6 +166,7 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
         min_dur_cool: timedelta | None,
         max_cycle_duration: timedelta | None,
         start_delay: timedelta | None,
+        mode_change_delay: timedelta | None,
         keep_alive: timedelta | None,
         min_temp: float | None,
         max_temp: float | None,
@@ -191,6 +194,7 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
         self._min_dur_cool = min_dur_cool or timedelta()
         self._max_cycle_duration = max_cycle_duration
         self._start_delay = start_delay or timedelta()
+        self._mode_change_delay = mode_change_delay or timedelta()
         self._keep_alive = keep_alive
         self._min_temp = min_temp
         self._max_temp = max_temp
@@ -217,6 +221,7 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
         self._start_delay_unsub: CALLBACK_TYPE | None = None
         self._min_runtime_unsub: CALLBACK_TYPE | None = None
         self._max_runtime_unsub: CALLBACK_TYPE | None = None
+        self._mode_change_unsub: CALLBACK_TYPE | None = None
         self._pending_start_output: Output | None = None
 
         self._attr_temperature_unit = unit
@@ -407,12 +412,42 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
     # ------------------------------------------------------------------ #
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set a new HVAC mode (Lastenheft 8.1 / 8.2)."""
+        """Set a new HVAC mode (Lastenheft 8.1 / 8.2, 8.4-Entprellung).
+
+        Ein Moduswechsel (inkl. OFF) schaltet die Ausgänge nicht sofort, sondern
+        startet eine Entprellung: Die Anlage läuft zunächst unverändert weiter.
+        Wird innerhalb der Moduswechsel-Verzögerung erneut umgeschaltet (z.B.
+        neugieriges Tippen), verfällt der vorige Timer – es passiert nichts.
+        Erst nach Ablauf erfolgt die volle Neubewertung und das Schalten.
+        """
         if hvac_mode not in self._attr_hvac_modes:
             _LOGGER.error("Unsupported HVAC mode: %s", hvac_mode)
             return
+
         self._hvac_mode = hvac_mode
-        # Voller Neubewertungs-Durchlauf; Ausgänge werden in _apply geschaltet.
+        # Anstehende Schalthandlungen verwerfen – die Lage ändert sich.
+        self._cancel_start_delay()
+        self._cancel_mode_change()
+
+        if self._mode_change_delay > timedelta():
+            _LOGGER.debug(
+                "Mode change to %s – debouncing for %s before acting",
+                hvac_mode,
+                self._mode_change_delay,
+            )
+            self._mode_change_unsub = async_call_later(
+                self.hass, self._mode_change_delay, self._async_mode_change_fired
+            )
+            self.async_write_ha_state()
+            return
+
+        # Keine Entprellung konfiguriert: sofort bewerten und schalten.
+        await self._async_control()
+        self.async_write_ha_state()
+
+    async def _async_mode_change_fired(self, _now: datetime | None = None) -> None:
+        """After the mode-change debounce: re-evaluate and switch."""
+        self._mode_change_unsub = None
         await self._async_control()
         self.async_write_ha_state()
 
@@ -484,6 +519,11 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
     async def _async_control(self, *, keepalive: bool = False) -> None:
         """Re-evaluate and apply the control decision."""
         async with self._temp_lock:
+            # Während der Moduswechsel-Entprellung bleibt die Anlage eingefroren:
+            # weder Sensor-Updates noch Keep-alive dürfen jetzt schalten.
+            if self._mode_change_unsub is not None:
+                return
+
             if not self._active and self._cur_temp is not None:
                 self._active = True
 
@@ -726,10 +766,17 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
             self._max_runtime_unsub = None
 
     @callback
+    def _cancel_mode_change(self) -> None:
+        if self._mode_change_unsub is not None:
+            self._mode_change_unsub()
+            self._mode_change_unsub = None
+
+    @callback
     def _cancel_timers(self) -> None:
         self._cancel_start_delay()
         self._cancel_min_runtime_recheck()
         self._cancel_max_runtime()
+        self._cancel_mode_change()
 
     # ------------------------------------------------------------------ #
     # Hilfsfunktionen

@@ -21,6 +21,7 @@ CONF_MIN_DUR_HEAT = "min_cycle_duration_heat"
 CONF_MIN_DUR_COOL = "min_cycle_duration_cool"
 CONF_MAX_DUR = "max_cycle_duration"
 CONF_START_DELAY = "start_delay"
+CONF_MODE_CHANGE_DELAY = "mode_change_delay"
 CONF_KEEP_ALIVE = "keep_alive"
 
 # --- Temperaturauflösung (Lastenheft 7.3) ---
@@ -36,5 +37,6 @@ CONF_TARGET_TEMP_COOL = "target_temp_cool"
 DEFAULT_TOLERANCE = 0.3
 DEFAULT_DDZ = 2.0
 DEFAULT_START_DELAY = 15  # Sekunden (Lastenheft 8.4)
+DEFAULT_MODE_CHANGE_DELAY = 15  # Sekunden – Entprellung bei Moduswechsel/OFF
 DEFAULT_RESOLUTION = "0.1"
 RESOLUTIONS = ["0.1", "0.5"]

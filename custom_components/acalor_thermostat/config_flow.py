@@ -31,6 +31,7 @@ from .const import (
     CONF_MIN_DUR_COOL,
     CONF_MIN_DUR_HEAT,
     CONF_MIN_TEMP,
+    CONF_MODE_CHANGE_DELAY,
     CONF_RESOLUTION,
     CONF_SENSOR,
     CONF_START_DELAY,
@@ -38,6 +39,7 @@ from .const import (
     CONF_TARGET_TEMP_HEAT,
     DOMAIN,
     DEFAULT_DDZ,
+    DEFAULT_MODE_CHANGE_DELAY,
     DEFAULT_RESOLUTION,
     DEFAULT_START_DELAY,
     DEFAULT_TOLERANCE,
@@ -95,6 +97,9 @@ OPTIONS_SCHEMA = {
     # --- Laufzeiten / Startverzögerung (optional) ---
     vol.Optional(
         CONF_START_DELAY, default={"seconds": DEFAULT_START_DELAY}
+    ): _duration_selector(),
+    vol.Optional(
+        CONF_MODE_CHANGE_DELAY, default={"seconds": DEFAULT_MODE_CHANGE_DELAY}
     ): _duration_selector(),
     vol.Optional(CONF_MIN_DUR_HEAT): _duration_selector(),
     vol.Optional(CONF_MIN_DUR_COOL): _duration_selector(),

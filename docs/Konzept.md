@@ -131,6 +131,41 @@ Reihenfolge exakt nach Lastenheft 8.2:
 Beim Wechsel z.B. von Heizen → Kühlen: **immer erst** den Heizausgang AUS, **dann** (ggf.
 nach Startverzögerung) den Kühlausgang EIN. Ein Zustand „beide EIN" darf nie entstehen.
 
+### 3.4 Moduswechsel-Entprellung (Klärung zu Lastenheft 8.4)
+
+Ein Moduswechsel (inkl. **OFF**) löst **nicht sofort** eine Schalthandlung aus. Stattdessen
+startet eine **Entprellung** (eigener Parameter „Moduswechsel-Verzögerung", Default 15 s):
+die Anlage läuft zunächst unverändert weiter. Erst nach Ablauf erfolgt die volle
+Neubewertung (`_async_control` → `_apply`), inkl. der danach greifenden Startverzögerung
+vor dem Einschalten.
+
+Zweck: Schutz vor kurzem, versehentlichem Tippen (Neugier von Familie/Kindern). Wird
+innerhalb der Verzögerung erneut umgeschaltet, verfällt der Timer (Neustart bei jeder
+Moduswechsel-Aktion) – die laufende Anlage „merkt" nichts.
+
+Umsetzung: Während ein Moduswechsel-Timer aktiv ist, ist `_async_control` **eingefroren**
+(früher Rücksprung) – auch Sensor-Updates und Keep-alive schalten dann nicht. Ausnahme:
+die **Höchstlaufzeit** (Sicherheits-Abschaltung) kann weiterhin auslösen.
+
+Zeitlicher Ablauf (Beispiel HEAT läuft → Tippen auf COOL):
+`T+0` Heizschalter bleibt an, Timer startet → `T+Moduswechsel-Verzögerung` Heizschalter aus
+→ Neubewertung → `+ Startverzögerung` → Kühlschalter ein (nur wenn dann noch gefordert).
+
+> **Hinweis Spec-Synchronität:** Das gedruckte Lastenheft 8.4 (v0.7) beschreibt nur die
+> Verzögerung *vor dem Einschalten*. Die hier festgehaltene bidirektionale Auslegung ist
+> die verbindliche Absicht des Auftraggebers. Vorschlag für **Lastenheft v0.8, Abschnitt 8.4**:
+>
+> > **8.4 Schaltverzögerung**
+> > Vor jeder Schalthandlung kann eine konfigurierbare Verzögerung angewendet werden.
+> > Es werden zwei Verzögerungen unterschieden:
+> > - **Startverzögerung** – vor dem Einschalten eines Ausgangs (Standard 15 s).
+> > - **Moduswechsel-Verzögerung** – nach einem Moduswechsel (inkl. OFF) bleibt der aktuelle
+> >   Zustand zunächst erhalten (Standard 15 s); wird innerhalb dieser Zeit erneut
+> >   umgeschaltet, verfällt die Anforderung.
+> >
+> > Nach Ablauf jeder Verzögerung erfolgt eine erneute Bewertung. Nur wenn die Anforderung
+> > weiterhin besteht, wird geschaltet.
+
 ---
 
 ## 4. Externe Schnittstelle (Lastenheft 6) – Architektur-Seam
