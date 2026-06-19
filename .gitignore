@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Backups / Archiv (Git ist jetzt die Historie)
+*.bak
+*.before_*
+_archive/
+
+# macOS
+.DS_Store
+
+# IDE (PyCharm)
+.idea/
+
+# Claude Code
+.claude/
