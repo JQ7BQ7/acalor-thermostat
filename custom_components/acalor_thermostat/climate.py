@@ -426,41 +426,43 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
     # ------------------------------------------------------------------ #
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set a new HVAC mode (Lastenheft 8.1 / 8.2, 8.4-Entprellung).
-
-        Ein Moduswechsel (inkl. OFF) schaltet die Ausgänge nicht sofort, sondern
-        startet eine Entprellung: Die Anlage läuft zunächst unverändert weiter.
-        Wird innerhalb der Moduswechsel-Verzögerung erneut umgeschaltet (z.B.
-        neugieriges Tippen), verfällt der vorige Timer – es passiert nichts.
-        Erst nach Ablauf erfolgt die volle Neubewertung und das Schalten.
-        """
+        """Set a new HVAC mode (Lastenheft 8.1 / 8.2, 8.4-Entprellung)."""
         if hvac_mode not in self._attr_hvac_modes:
             _LOGGER.error("Unsupported HVAC mode: %s", hvac_mode)
             return
-
         self._hvac_mode = hvac_mode
+        await self._handle_user_change()
+        self.async_write_ha_state()
+
+    async def _handle_user_change(self) -> None:
+        """Apply a user-initiated change (mode or setpoint) with debounce.
+
+        Ein Moduswechsel (inkl. OFF) ODER eine Sollwert-Änderung schaltet die
+        Ausgänge nicht sofort. Die Anlage läuft zunächst unverändert weiter
+        (Entprellung): Wird innerhalb der Moduswechsel-Verzögerung erneut
+        umgeschaltet/verstellt, verfällt der Timer – es passiert nichts. Erst
+        nach Ablauf erfolgt die volle Neubewertung und das Schalten. Dadurch
+        gilt die Verzögerung auch fürs Ausschalten bei Sollwert-Änderungen.
+        """
         # Anstehende Schalthandlungen verwerfen – die Lage ändert sich.
         self._cancel_start_delay()
         self._cancel_mode_change()
 
         if self._mode_change_delay > timedelta():
             _LOGGER.debug(
-                "Mode change to %s – debouncing for %s before acting",
-                hvac_mode,
+                "User change – debouncing for %s before acting",
                 self._mode_change_delay,
             )
             self._mode_change_unsub = async_call_later(
                 self.hass, self._mode_change_delay, self._async_mode_change_fired
             )
-            self.async_write_ha_state()
             return
 
         # Keine Entprellung konfiguriert: sofort bewerten und schalten.
         await self._async_control()
-        self.async_write_ha_state()
 
     async def _async_mode_change_fired(self, _now: datetime | None = None) -> None:
-        """After the mode-change debounce: re-evaluate and switch."""
+        """After the debounce: re-evaluate and switch."""
         self._mode_change_unsub = None
         await self._async_control()
         self.async_write_ha_state()
@@ -472,10 +474,21 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
         single = kwargs.get(ATTR_TEMPERATURE)
 
         if low is not None and high is not None:
-            # Bereichseingabe (HEAT_COOL): beide gesetzt -> symmetrisch normieren.
+            # Bereichseingabe (HEAT_COOL): nur den bewegten Griff als Anker nehmen,
+            # damit der vom Nutzer eingestellte Wert exakt stehen bleibt und nur
+            # der andere Sollwert ausweicht (kein „Zurückfedern").
+            old_heat = self._target_temp_heat
+            old_cool = self._target_temp_cool
             self._target_temp_heat = low
             self._target_temp_cool = high
-            self._enforce_ddz(None)
+            heat_moved = old_heat is None or self._round(low) != self._round(old_heat)
+            cool_moved = old_cool is None or self._round(high) != self._round(old_cool)
+            if cool_moved and not heat_moved:
+                self._enforce_ddz("cool")
+            elif heat_moved and not cool_moved:
+                self._enforce_ddz("heat")
+            else:
+                self._enforce_ddz(None)
         elif single is not None:
             if self._hvac_mode == HVACMode.HEAT:
                 self._target_temp_heat = single
@@ -488,7 +501,7 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
         else:
             return
 
-        await self._async_control()
+        await self._handle_user_change()
         self.async_write_ha_state()
 
     # ------------------------------------------------------------------ #
