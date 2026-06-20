@@ -126,6 +126,15 @@ async def _validate(
     if user_input[CONF_HEATER] == user_input[CONF_COOLER]:
         raise SchemaFlowError("same_switch")
 
+    # DDZ darf nicht größer sein als der einstellbare Temperaturbereich.
+    if (
+        CONF_MIN_TEMP in user_input
+        and CONF_MAX_TEMP in user_input
+        and user_input[CONF_MAX_TEMP] - user_input[CONF_MIN_TEMP]
+        < user_input[CONF_DDZ]
+    ):
+        raise SchemaFlowError("ddz_too_large")
+
     # Mindestlaufzeit muss kleiner als die Höchstlaufzeit sein.
     if CONF_MAX_DUR in user_input:
         max_dur = timedelta(**user_input[CONF_MAX_DUR])

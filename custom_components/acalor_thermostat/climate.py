@@ -184,7 +184,7 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
         self.device_entry = async_entity_id_to_device(hass, heater_entity_id)
 
         # Konfiguration
-        self._dead_zone = dead_zone  # Phase 5: noch nicht erzwungen
+        self._dead_zone = dead_zone  # Mindestabstand Kühl-/Heiz-Soll (DDZ)
         self._heat_on_tol = heat_on_tolerance
         self._heat_off_tol = heat_off_tolerance
         self._cool_on_tol = cool_on_tolerance
@@ -305,9 +305,8 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
         if self._target_temp_cool is None:
             self._target_temp_cool = self.max_temp
 
-        self._target_temp_heat = self._round(self._target_temp_heat)
-        self._target_temp_cool = self._round(self._target_temp_cool)
-        # Phase 5: hier wird zusätzlich die DDZ erzwungen.
+        # DDZ auch nach Neustart erzwingen (z.B. falls DDZ-Config erhöht wurde).
+        self._enforce_ddz(None)
 
     async def _async_startup_control(self) -> None:
         """Adopt the real switch state, enforce safety, then evaluate."""
@@ -399,6 +398,11 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
         return self._target_temp_cool
 
     @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose the Dynamic Dead Zone for transparency."""
+        return {"dead_zone": self._dead_zone}
+
+    @property
     def min_temp(self) -> float:
         """Return the minimum temperature."""
         if self._min_temp is not None:
@@ -463,19 +467,22 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
         single = kwargs.get(ATTR_TEMPERATURE)
 
         if low is not None and high is not None:
-            self._target_temp_heat = self._round(low)
-            self._target_temp_cool = self._round(high)
+            # Bereichseingabe (HEAT_COOL): beide gesetzt -> symmetrisch normieren.
+            self._target_temp_heat = low
+            self._target_temp_cool = high
+            self._enforce_ddz(None)
         elif single is not None:
             if self._hvac_mode == HVACMode.HEAT:
-                self._target_temp_heat = self._round(single)
+                self._target_temp_heat = single
+                self._enforce_ddz("heat")
             elif self._hvac_mode == HVACMode.COOL:
-                self._target_temp_cool = self._round(single)
+                self._target_temp_cool = single
+                self._enforce_ddz("cool")
             else:
                 return
         else:
             return
 
-        # Phase 5: hier wird die DDZ erzwungen (Auto-Nachziehen).
         await self._async_control()
         self.async_write_ha_state()
 
@@ -782,6 +789,51 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
         self._cancel_min_runtime_recheck()
         self._cancel_max_runtime()
         self._cancel_mode_change()
+
+    # ------------------------------------------------------------------ #
+    # Dynamic Dead Zone (Lastenheft 3.2 / 3.3)
+    # ------------------------------------------------------------------ #
+
+    def _enforce_ddz(self, anchor: Literal["heat", "cool"] | None) -> None:
+        """Enforce ``cool >= heat + DDZ`` – the invariant that must never break.
+
+        ``anchor`` ist der gerade geänderte Sollwert; der jeweils andere wird
+        nachgezogen (Lastenheft 3.3). Bei ``None`` (Neustart / Bereichseingabe)
+        wird symmetrisch um die Mitte aufgezogen (Lastenheft 3.2.1). Beide Werte
+        werden gerundet und auf [min_temp, max_temp] begrenzt; ein durch das
+        Begrenzen entstehender Verstoß wird anschließend korrigiert.
+        """
+        heat = self._target_temp_heat
+        cool = self._target_temp_cool
+        if heat is None or cool is None:
+            self._target_temp_heat = self._round(heat)
+            self._target_temp_cool = self._round(cool)
+            return
+
+        ddz = self._dead_zone
+        if cool - heat < ddz:
+            if anchor == "heat":
+                cool = heat + ddz
+            elif anchor == "cool":
+                heat = cool - ddz
+            else:
+                mid = (heat + cool) / 2
+                heat = mid - ddz / 2
+                cool = mid + ddz / 2
+
+        heat = self._round(heat)
+        cool = self._round(cool)
+
+        # Das Begrenzen auf min/max kann die DDZ erneut verletzen -> nachziehen
+        # (setzt voraus, dass max_temp - min_temp >= DDZ; per Config-Flow geprüft).
+        if cool - heat < ddz:
+            if cool >= self.max_temp:
+                heat = self._round(cool - ddz)
+            else:
+                cool = self._round(heat + ddz)
+
+        self._target_temp_heat = heat
+        self._target_temp_cool = cool
 
     # ------------------------------------------------------------------ #
     # Hilfsfunktionen

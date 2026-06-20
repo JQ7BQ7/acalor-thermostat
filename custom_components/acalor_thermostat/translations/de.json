@@ -3,7 +3,8 @@
   "config": {
     "error": {
       "same_switch": "Heiz- und Kühlschalter müssen unterschiedliche Entitäten sein.",
-      "min_max_runtime": "Die Mindestlaufzeit muss kürzer als die Höchstlaufzeit sein."
+      "min_max_runtime": "Die Mindestlaufzeit muss kürzer als die Höchstlaufzeit sein.",
+      "ddz_too_large": "Die Dynamic Dead Zone darf nicht größer sein als der Abstand zwischen minimaler und maximaler Soll-Temperatur."
     },
     "step": {
       "user": {
@@ -54,7 +55,8 @@
   "options": {
     "error": {
       "same_switch": "Heiz- und Kühlschalter müssen unterschiedliche Entitäten sein.",
-      "min_max_runtime": "Die Mindestlaufzeit muss kürzer als die Höchstlaufzeit sein."
+      "min_max_runtime": "Die Mindestlaufzeit muss kürzer als die Höchstlaufzeit sein.",
+      "ddz_too_large": "Die Dynamic Dead Zone darf nicht größer sein als der Abstand zwischen minimaler und maximaler Soll-Temperatur."
     },
     "step": {
       "init": {

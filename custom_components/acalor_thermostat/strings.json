@@ -3,7 +3,8 @@
   "config": {
     "error": {
       "same_switch": "The heating and cooling switch must be different entities.",
-      "min_max_runtime": "The minimum run time must be shorter than the maximum run time."
+      "min_max_runtime": "The minimum run time must be shorter than the maximum run time.",
+      "ddz_too_large": "The Dynamic Dead Zone must not be larger than the span between minimum and maximum target temperature."
     },
     "step": {
       "user": {
@@ -54,7 +55,8 @@
   "options": {
     "error": {
       "same_switch": "The heating and cooling switch must be different entities.",
-      "min_max_runtime": "The minimum run time must be shorter than the maximum run time."
+      "min_max_runtime": "The minimum run time must be shorter than the maximum run time.",
+      "ddz_too_large": "The Dynamic Dead Zone must not be larger than the span between minimum and maximum target temperature."
     },
     "step": {
       "init": {
