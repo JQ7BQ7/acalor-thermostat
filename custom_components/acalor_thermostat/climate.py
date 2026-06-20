@@ -468,15 +468,18 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
             "cool_offset": self._ext_cool_offset,
             "status_reason": self._status_reason(),
         }
-        # Tatsächlich angefahrener Wert (Sollwert inkl. externem Offset).
+        # Tatsächlich angefahrener Wert (Sollwert inkl. externem Offset) sowie
+        # die realen Schaltpunkte aus der Hysterese.
         if self._target_temp_heat is not None:
-            attrs["heat_setpoint_effective"] = round(
-                self._target_temp_heat + self._ext_heat_offset, 2
-            )
+            heat_base = self._target_temp_heat + self._ext_heat_offset
+            attrs["heat_setpoint_effective"] = round(heat_base, 2)
+            attrs["heat_on_at"] = round(heat_base - self._heat_on_tol, 2)
+            attrs["heat_off_at"] = round(heat_base + self._heat_off_tol, 2)
         if self._target_temp_cool is not None:
-            attrs["cool_setpoint_effective"] = round(
-                self._target_temp_cool + self._ext_cool_offset, 2
-            )
+            cool_base = self._target_temp_cool + self._ext_cool_offset
+            attrs["cool_setpoint_effective"] = round(cool_base, 2)
+            attrs["cool_on_at"] = round(cool_base + self._cool_on_tol, 2)
+            attrs["cool_off_at"] = round(cool_base - self._cool_off_tol, 2)
         if self._target_temp_heat is not None and self._target_temp_cool is not None:
             attrs["center"] = round(
                 (self._target_temp_heat + self._target_temp_cool) / 2, 2
