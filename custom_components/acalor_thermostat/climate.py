@@ -18,6 +18,8 @@ import logging
 import math
 from typing import Any, Literal
 
+import voluptuous as vol
+
 from homeassistant.components.climate import (
     ATTR_TARGET_TEMP_HIGH,
     ATTR_TARGET_TEMP_LOW,
@@ -48,6 +50,7 @@ from homeassistant.core import (
     State,
     callback,
 )
+from homeassistant.helpers import entity_platform
 from homeassistant.helpers.device import async_entity_id_to_device
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import (
@@ -152,6 +155,14 @@ async def async_setup_entry(
                 unique_id=config_entry.entry_id,
             )
         ]
+    )
+
+    # Komfortfunktion (Lastenheft 5.5): DDZ-Mitte gemeinsam verschieben.
+    platform = entity_platform.async_get_current_platform()
+    platform.async_register_entity_service(
+        "shift_center",
+        {vol.Required("delta"): vol.Coerce(float)},
+        "async_shift_center",
     )
 
 
@@ -466,6 +477,10 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
             attrs["cool_setpoint_effective"] = round(
                 self._target_temp_cool + self._ext_cool_offset, 2
             )
+        if self._target_temp_heat is not None and self._target_temp_cool is not None:
+            attrs["center"] = round(
+                (self._target_temp_heat + self._target_temp_cool) / 2, 2
+            )
         return attrs
 
     def _status_reason(self) -> str:
@@ -611,6 +626,27 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
         else:
             return
 
+        await self._handle_user_change()
+        self.async_write_ha_state()
+
+    async def async_shift_center(self, delta: float) -> None:
+        """Shift both setpoints together, keeping the DDZ width (Lastenheft 5.5).
+
+        Verschiebt Heiz- und Kühl-Sollwert um denselben Betrag (die Mitte der
+        Dead Zone), der Abstand bleibt gleich. Am Min/Max-Anschlag wird der
+        Schritt so begrenzt, dass die DDZ-Breite erhalten bleibt.
+        """
+        if self._target_temp_heat is None or self._target_temp_cool is None:
+            return
+        if delta > 0:
+            delta = min(delta, self.max_temp - self._target_temp_cool)
+        else:
+            delta = max(delta, self.min_temp - self._target_temp_heat)
+        if not delta:
+            return
+        self._target_temp_heat = self._round(self._target_temp_heat + delta)
+        self._target_temp_cool = self._round(self._target_temp_cool + delta)
+        self._enforce_ddz(None)
         await self._handle_user_change()
         self.async_write_ha_state()
 

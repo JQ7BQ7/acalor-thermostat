@@ -1,1 +1,5 @@
-{}
+{
+  "services": {
+    "shift_center": "mdi:arrow-up-down-bold"
+  }
+}

@@ -124,5 +124,17 @@
         }
       }
     }
+  },
+  "services": {
+    "shift_center": {
+      "name": "Shift centre",
+      "description": "Shift the heating and cooling setpoints together (the DDZ centre), keeping the gap constant.",
+      "fields": {
+        "delta": {
+          "name": "Delta",
+          "description": "Amount in °C to shift the centre by (positive = warmer, negative = cooler)."
+        }
+      }
+    }
   }
 }

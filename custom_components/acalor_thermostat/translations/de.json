@@ -124,5 +124,17 @@
         }
       }
     }
+  },
+  "services": {
+    "shift_center": {
+      "name": "Mitte verschieben",
+      "description": "Verschiebt Heiz- und Kühl-Sollwert gemeinsam (die DDZ-Mitte), der Abstand bleibt gleich.",
+      "fields": {
+        "delta": {
+          "name": "Delta",
+          "description": "Verschiebung der Mitte in °C (positiv = wärmer, negativ = kälter)."
+        }
+      }
+    }
   }
 }
