@@ -473,13 +473,19 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
         if self._hvac_mode == HVACMode.OFF:
             return "Aus"
         action = self.hvac_action
+        pending = self._mode_change_unsub is not None
         if action == HVACAction.HEATING:
+            # Schalter noch an, aber die Entprellung schaltet ihn gleich ab?
+            if pending and self._evaluate() != "heat":
+                return "Heizen (Abschaltverzögerung läuft)"
             return "Heizen" + self._offset_suffix(self._ext_heat_offset)
         if action == HVACAction.COOLING:
+            if pending and self._evaluate() != "cool":
+                return "Kühlen (Abschaltverzögerung läuft)"
             return "Kühlen" + self._offset_suffix(self._ext_cool_offset)
         # Leerlauf – genauer aufschlüsseln:
-        if self._mode_change_unsub is not None:
-            return "Moduswechsel-Verzögerung"
+        if pending:
+            return "Verzögerung läuft"
         if self._pending_start_output == "heat":
             return "Startverzögerung (Heizen)"
         if self._pending_start_output == "cool":
