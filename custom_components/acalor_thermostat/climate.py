@@ -485,10 +485,13 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
 
     def _status_reason(self) -> str:
         """Human-readable reason for the current state (Lastenheft 5.3)."""
-        if self._hvac_mode == HVACMode.OFF:
-            return "Aus"
         action = self.hvac_action
         pending = self._mode_change_unsub is not None
+        if self._hvac_mode == HVACMode.OFF:
+            # Während der OFF-Entprellung läuft der Ausgang noch weiter.
+            if action in (HVACAction.HEATING, HVACAction.COOLING):
+                return "Abschaltverzögerung läuft"
+            return "Aus"
         if action == HVACAction.HEATING:
             # Schalter noch an, aber die Entprellung schaltet ihn gleich ab?
             if pending and self._evaluate() != "heat":
