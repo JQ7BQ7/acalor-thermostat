@@ -449,7 +449,7 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Expose DDZ, external requests and a human-readable status reason."""
-        return {
+        attrs: dict[str, Any] = {
             "dead_zone": self._dead_zone,
             "heat_enabled": self._ext_heat_enable,
             "cool_enabled": self._ext_cool_enable,
@@ -457,6 +457,16 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
             "cool_offset": self._ext_cool_offset,
             "status_reason": self._status_reason(),
         }
+        # Tatsächlich angefahrener Wert (Sollwert inkl. externem Offset).
+        if self._target_temp_heat is not None:
+            attrs["heat_setpoint_effective"] = round(
+                self._target_temp_heat + self._ext_heat_offset, 2
+            )
+        if self._target_temp_cool is not None:
+            attrs["cool_setpoint_effective"] = round(
+                self._target_temp_cool + self._ext_cool_offset, 2
+            )
+        return attrs
 
     def _status_reason(self) -> str:
         """Human-readable reason for the current state (Lastenheft 5.3)."""
@@ -464,9 +474,9 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
             return "Aus"
         action = self.hvac_action
         if action == HVACAction.HEATING:
-            return "Heizen"
+            return "Heizen" + self._offset_suffix(self._ext_heat_offset)
         if action == HVACAction.COOLING:
-            return "Kühlen"
+            return "Kühlen" + self._offset_suffix(self._ext_cool_offset)
         # Leerlauf – genauer aufschlüsseln:
         if self._mode_change_unsub is not None:
             return "Moduswechsel-Verzögerung"
@@ -493,6 +503,13 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
             ):
                 return "Kühlen extern gesperrt"
         return "Leerlauf"
+
+    @staticmethod
+    def _offset_suffix(offset: float) -> str:
+        """Append an active external offset to the status text."""
+        if not offset:
+            return ""
+        return f" (Offset {offset:+.1f} °C)".replace(".", ",")
 
     @property
     def min_temp(self) -> float:
