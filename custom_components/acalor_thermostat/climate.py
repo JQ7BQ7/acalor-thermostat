@@ -625,14 +625,17 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
 
         Der Modus bleibt dauerhaft HEAT_COOL; je nach Ist-Temperatur wird die
         Heiz- oder Kühllogik (inkl. eigener Hysterese) ausgeführt, dazwischen
-        (innerhalb der Dead Zone) idle. Ein bereits laufender Ausgang wird mit
-        seiner Hysterese weitergeführt, damit die Toleranzen sauber greifen.
+        (innerhalb der Dead Zone) idle.
         """
-        if self._active_output == "heat":
-            return self._eval_heat(cur)
-        if self._active_output == "cool":
-            return self._eval_cool(cur)
-        # Leerlauf: anhand der Sollwerte entscheiden, welche Seite zu prüfen ist.
+        # Laufenden Ausgang mit seiner Hysterese fortführen, solange gefordert.
+        if self._active_output == "heat" and self._eval_heat(cur) == "heat":
+            return "heat"
+        if self._active_output == "cool" and self._eval_cool(cur) == "cool":
+            return "cool"
+        # Sonst neu dispatchen – auch wenn der laufende Ausgang gerade abschalten
+        # soll: liegt die Ist-Temp jenseits eines Sollwerts, direkt auf die andere
+        # Seite wechseln. Ohne das bliebe der Regler nach heat->idle im Leerlauf
+        # „hängen", statt auf cool zu gehen (und umgekehrt).
         if (
             self._target_temp_heat is not None
             and cur < self._target_temp_heat + self._ext_heat_offset

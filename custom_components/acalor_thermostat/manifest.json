@@ -1,7 +1,7 @@
 {
   "domain": "acalor_thermostat",
   "name": "Acalor Thermostat",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "codeowners": ["@JQ7BQ7"],
   "config_flow": true,
   "dependencies": ["sensor", "switch"],
