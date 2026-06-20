@@ -225,7 +225,12 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
         self._pending_start_output: Output | None = None
 
         self._attr_temperature_unit = unit
-        self._attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL]
+        self._attr_hvac_modes = [
+            HVACMode.OFF,
+            HVACMode.HEAT,
+            HVACMode.COOL,
+            HVACMode.HEAT_COOL,
+        ]
         self._attr_supported_features = (
             ClimateEntityFeature.TARGET_TEMPERATURE
             | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
@@ -570,7 +575,8 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
             return self._eval_heat(cur)
         if self._hvac_mode == HVACMode.COOL:
             return self._eval_cool(cur)
-        # HEAT_COOL-Dispatcher: Phase 6.
+        if self._hvac_mode == HVACMode.HEAT_COOL:
+            return self._eval_heat_cool(cur)
         return "idle"
 
     def _eval_heat(self, cur: float) -> Decision:
@@ -601,6 +607,41 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
             return "cool"
         return "idle"
 
+    def _eval_heat_cool(self, cur: float) -> Decision:
+        """HEAT_COOL dispatcher (Lastenheft 2.4).
+
+        Der Modus bleibt dauerhaft HEAT_COOL; je nach Ist-Temperatur wird die
+        Heiz- oder Kühllogik (inkl. eigener Hysterese) ausgeführt, dazwischen
+        (innerhalb der Dead Zone) idle. Ein bereits laufender Ausgang wird mit
+        seiner Hysterese weitergeführt, damit die Toleranzen sauber greifen.
+        """
+        if self._active_output == "heat":
+            return self._eval_heat(cur)
+        if self._active_output == "cool":
+            return self._eval_cool(cur)
+        # Leerlauf: anhand der Sollwerte entscheiden, welche Seite zu prüfen ist.
+        if (
+            self._target_temp_heat is not None
+            and cur < self._target_temp_heat + self._ext_heat_offset
+        ):
+            return self._eval_heat(cur)
+        if (
+            self._target_temp_cool is not None
+            and cur > self._target_temp_cool + self._ext_cool_offset
+        ):
+            return self._eval_cool(cur)
+        return "idle"
+
+    def _output_allowed(self, output: Output) -> bool:
+        """Whether an output may run in the current HVAC mode (Lastenheft 2.2/2.3)."""
+        if self._hvac_mode == HVACMode.HEAT:
+            return output == "heat"
+        if self._hvac_mode == HVACMode.COOL:
+            return output == "cool"
+        if self._hvac_mode == HVACMode.HEAT_COOL:
+            return True
+        return False
+
     async def _apply(self, decision: Decision, *, keepalive: bool) -> None:
         """Apply a decision following the order from Lastenheft 8.2."""
         target: Output | None = None if decision == "idle" else decision
@@ -619,7 +660,12 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
 
         # 2./3. Mindestlaufzeit + Verriegelung: laufenden Ausgang ggf. abschalten.
         if self._active_output is not None:
-            if not self._min_runtime_elapsed(self._active_output):
+            # Die Mindestlaufzeit schützt nur einen im aktuellen Modus erlaubten
+            # Ausgang. Ein modus-fremder Ausgang (z.B. Heizen nach Wechsel auf
+            # COOL) wird sofort abgeschaltet (Lastenheft 2.2 / 2.3).
+            if self._output_allowed(
+                self._active_output
+            ) and not self._min_runtime_elapsed(self._active_output):
                 self._schedule_min_runtime_recheck(self._active_output)
                 return
             await self._switch_off_active()
