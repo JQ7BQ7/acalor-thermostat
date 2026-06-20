@@ -32,6 +32,11 @@ Kernmerkmale laut Lastenheft:
 3. Home Assistant neu starten.
 4. Unter *Einstellungen → Geräte & Dienste → Helfer* hinzufügen.
 
+## Dashboard
+
+Fertige Lovelace-Karten (Thermostat, Statusanzeige, Komfort-Buttons,
+Temperaturverlauf) inkl. Attribut-Referenz: [`docs/Dashboard.md`](docs/Dashboard.md).
+
 ## Entwicklungsstand
 
 In aktiver Entwicklung. Umsetzung in Phasen gemäß Lastenheft (Abschnitt 10).
