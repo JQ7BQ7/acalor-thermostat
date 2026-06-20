@@ -30,7 +30,13 @@
           "min_temp": "Minimum target temperature",
           "max_temp": "Maximum target temperature",
           "target_temp_heat": "Initial heating setpoint",
-          "target_temp_cool": "Initial cooling setpoint"
+          "target_temp_cool": "Initial cooling setpoint",
+          "heat_enable_entity": "Heating enable (entity)",
+          "heat_enable_invert": "Invert heating enable",
+          "cool_enable_entity": "Cooling enable (entity)",
+          "cool_enable_invert": "Invert cooling enable",
+          "heat_offset_entity": "Heating offset (entity)",
+          "cool_offset_entity": "Cooling offset (entity)"
         },
         "data_description": {
           "target_sensor": "Temperature sensor that reflects the current temperature.",
@@ -47,7 +53,13 @@
           "min_cycle_duration_heat": "Once heating is on, the minimum time before it may switch off.",
           "min_cycle_duration_cool": "Once cooling is on, the minimum time before it may switch off.",
           "max_cycle_duration": "Once an output is on, the maximum time before it is switched off.",
-          "keep_alive": "Periodically re-send the switch command so devices do not lose their state."
+          "keep_alive": "Periodically re-send the switch command so devices do not lose their state.",
+          "heat_enable_entity": "Optional. On/off entity (input_boolean, switch, binary_sensor): \"on\" means heating is allowed. Empty = always allowed.",
+          "heat_enable_invert": "Reverses the meaning, so \"on\" means heating is blocked (e.g. to use a window contact directly).",
+          "cool_enable_entity": "Optional. On/off entity (input_boolean, switch, binary_sensor): \"on\" means cooling is allowed. Empty = always allowed.",
+          "cool_enable_invert": "Reverses the meaning, so \"on\" means cooling is blocked.",
+          "heat_offset_entity": "Optional. Number entity (input_number, number, sensor) in °C added to the heating setpoint. Empty = 0.",
+          "cool_offset_entity": "Optional. Number entity (input_number, number, sensor) in °C added to the cooling setpoint. Empty = 0."
         }
       }
     }
@@ -79,7 +91,13 @@
           "min_temp": "Minimum target temperature",
           "max_temp": "Maximum target temperature",
           "target_temp_heat": "Initial heating setpoint",
-          "target_temp_cool": "Initial cooling setpoint"
+          "target_temp_cool": "Initial cooling setpoint",
+          "heat_enable_entity": "Heating enable (entity)",
+          "heat_enable_invert": "Invert heating enable",
+          "cool_enable_entity": "Cooling enable (entity)",
+          "cool_enable_invert": "Invert cooling enable",
+          "heat_offset_entity": "Heating offset (entity)",
+          "cool_offset_entity": "Cooling offset (entity)"
         },
         "data_description": {
           "target_sensor": "Temperature sensor that reflects the current temperature.",
@@ -96,7 +114,13 @@
           "min_cycle_duration_heat": "Once heating is on, the minimum time before it may switch off.",
           "min_cycle_duration_cool": "Once cooling is on, the minimum time before it may switch off.",
           "max_cycle_duration": "Once an output is on, the maximum time before it is switched off.",
-          "keep_alive": "Periodically re-send the switch command so devices do not lose their state."
+          "keep_alive": "Periodically re-send the switch command so devices do not lose their state.",
+          "heat_enable_entity": "Optional. On/off entity (input_boolean, switch, binary_sensor): \"on\" means heating is allowed. Empty = always allowed.",
+          "heat_enable_invert": "Reverses the meaning, so \"on\" means heating is blocked (e.g. to use a window contact directly).",
+          "cool_enable_entity": "Optional. On/off entity (input_boolean, switch, binary_sensor): \"on\" means cooling is allowed. Empty = always allowed.",
+          "cool_enable_invert": "Reverses the meaning, so \"on\" means cooling is blocked.",
+          "heat_offset_entity": "Optional. Number entity (input_number, number, sensor) in °C added to the heating setpoint. Empty = 0.",
+          "cool_offset_entity": "Optional. Number entity (input_number, number, sensor) in °C added to the cooling setpoint. Empty = 0."
         }
       }
     }

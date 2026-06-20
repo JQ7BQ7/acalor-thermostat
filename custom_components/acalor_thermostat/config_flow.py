@@ -18,10 +18,16 @@ from homeassistant.helpers.schema_config_entry_flow import (
 )
 
 from .const import (
+    CONF_COOL_ENABLE_ENTITY,
+    CONF_COOL_ENABLE_INVERT,
     CONF_COOL_OFF_TOLERANCE,
+    CONF_COOL_OFFSET_ENTITY,
     CONF_COOL_ON_TOLERANCE,
     CONF_COOLER,
     CONF_DDZ,
+    CONF_HEAT_ENABLE_ENTITY,
+    CONF_HEAT_ENABLE_INVERT,
+    CONF_HEAT_OFFSET_ENTITY,
     CONF_HEAT_OFF_TOLERANCE,
     CONF_HEAT_ON_TOLERANCE,
     CONF_HEATER,
@@ -105,6 +111,25 @@ OPTIONS_SCHEMA = {
     vol.Optional(CONF_MIN_DUR_COOL): _duration_selector(),
     vol.Optional(CONF_MAX_DUR): _duration_selector(),
     vol.Optional(CONF_KEEP_ALIVE): _duration_selector(),
+    # --- Externe Anforderungen (optional, Lastenheft 6) ---
+    vol.Optional(CONF_HEAT_ENABLE_ENTITY): selector.EntitySelector(
+        selector.EntitySelectorConfig(
+            domain=["input_boolean", "switch", "binary_sensor"]
+        )
+    ),
+    vol.Optional(CONF_HEAT_ENABLE_INVERT, default=False): selector.BooleanSelector(),
+    vol.Optional(CONF_COOL_ENABLE_ENTITY): selector.EntitySelector(
+        selector.EntitySelectorConfig(
+            domain=["input_boolean", "switch", "binary_sensor"]
+        )
+    ),
+    vol.Optional(CONF_COOL_ENABLE_INVERT, default=False): selector.BooleanSelector(),
+    vol.Optional(CONF_HEAT_OFFSET_ENTITY): selector.EntitySelector(
+        selector.EntitySelectorConfig(domain=["input_number", "number", "sensor"])
+    ),
+    vol.Optional(CONF_COOL_OFFSET_ENTITY): selector.EntitySelector(
+        selector.EntitySelectorConfig(domain=["input_number", "number", "sensor"])
+    ),
     # --- Sollwert-Grenzen / Startwerte (optional) ---
     vol.Optional(CONF_MIN_TEMP): _temp_selector(),
     vol.Optional(CONF_MAX_TEMP): _temp_selector(),

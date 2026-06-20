@@ -30,7 +30,13 @@
           "min_temp": "Minimale Soll-Temperatur",
           "max_temp": "Maximale Soll-Temperatur",
           "target_temp_heat": "Anfangs-Heiz-Sollwert",
-          "target_temp_cool": "Anfangs-Kühl-Sollwert"
+          "target_temp_cool": "Anfangs-Kühl-Sollwert",
+          "heat_enable_entity": "Heizfreigabe (Entität)",
+          "heat_enable_invert": "Heizfreigabe invertieren",
+          "cool_enable_entity": "Kühlfreigabe (Entität)",
+          "cool_enable_invert": "Kühlfreigabe invertieren",
+          "heat_offset_entity": "Heiz-Offset (Entität)",
+          "cool_offset_entity": "Kühl-Offset (Entität)"
         },
         "data_description": {
           "target_sensor": "Temperatursensor, der die Ist-Temperatur abbildet.",
@@ -47,7 +53,13 @@
           "min_cycle_duration_heat": "Wenn Heizen läuft, die Mindestzeit, bevor es wieder ausschalten darf.",
           "min_cycle_duration_cool": "Wenn Kühlen läuft, die Mindestzeit, bevor es wieder ausschalten darf.",
           "max_cycle_duration": "Wenn ein Ausgang läuft, die maximale Zeit, bevor er ausgeschaltet wird.",
-          "keep_alive": "Sendet den Schaltbefehl regelmäßig erneut, damit Geräte ihren Zustand nicht verlieren."
+          "keep_alive": "Sendet den Schaltbefehl regelmäßig erneut, damit Geräte ihren Zustand nicht verlieren.",
+          "heat_enable_entity": "Optional. Ein/Aus-Entität (input_boolean, switch, binary_sensor): „ein“ = Heizen erlaubt. Leer = immer erlaubt.",
+          "heat_enable_invert": "Kehrt die Bedeutung um, dann gilt „ein“ = Heizen gesperrt (z. B. um einen Fensterkontakt direkt zu verwenden).",
+          "cool_enable_entity": "Optional. Ein/Aus-Entität (input_boolean, switch, binary_sensor): „ein“ = Kühlen erlaubt. Leer = immer erlaubt.",
+          "cool_enable_invert": "Kehrt die Bedeutung um, dann gilt „ein“ = Kühlen gesperrt.",
+          "heat_offset_entity": "Optional. Zahl-Entität (input_number, number, sensor) in °C, die auf den Heiz-Sollwert addiert wird. Leer = 0.",
+          "cool_offset_entity": "Optional. Zahl-Entität (input_number, number, sensor) in °C, die auf den Kühl-Sollwert addiert wird. Leer = 0."
         }
       }
     }
@@ -79,7 +91,13 @@
           "min_temp": "Minimale Soll-Temperatur",
           "max_temp": "Maximale Soll-Temperatur",
           "target_temp_heat": "Anfangs-Heiz-Sollwert",
-          "target_temp_cool": "Anfangs-Kühl-Sollwert"
+          "target_temp_cool": "Anfangs-Kühl-Sollwert",
+          "heat_enable_entity": "Heizfreigabe (Entität)",
+          "heat_enable_invert": "Heizfreigabe invertieren",
+          "cool_enable_entity": "Kühlfreigabe (Entität)",
+          "cool_enable_invert": "Kühlfreigabe invertieren",
+          "heat_offset_entity": "Heiz-Offset (Entität)",
+          "cool_offset_entity": "Kühl-Offset (Entität)"
         },
         "data_description": {
           "target_sensor": "Temperatursensor, der die Ist-Temperatur abbildet.",
@@ -96,7 +114,13 @@
           "min_cycle_duration_heat": "Wenn Heizen läuft, die Mindestzeit, bevor es wieder ausschalten darf.",
           "min_cycle_duration_cool": "Wenn Kühlen läuft, die Mindestzeit, bevor es wieder ausschalten darf.",
           "max_cycle_duration": "Wenn ein Ausgang läuft, die maximale Zeit, bevor er ausgeschaltet wird.",
-          "keep_alive": "Sendet den Schaltbefehl regelmäßig erneut, damit Geräte ihren Zustand nicht verlieren."
+          "keep_alive": "Sendet den Schaltbefehl regelmäßig erneut, damit Geräte ihren Zustand nicht verlieren.",
+          "heat_enable_entity": "Optional. Ein/Aus-Entität (input_boolean, switch, binary_sensor): „ein“ = Heizen erlaubt. Leer = immer erlaubt.",
+          "heat_enable_invert": "Kehrt die Bedeutung um, dann gilt „ein“ = Heizen gesperrt (z. B. um einen Fensterkontakt direkt zu verwenden).",
+          "cool_enable_entity": "Optional. Ein/Aus-Entität (input_boolean, switch, binary_sensor): „ein“ = Kühlen erlaubt. Leer = immer erlaubt.",
+          "cool_enable_invert": "Kehrt die Bedeutung um, dann gilt „ein“ = Kühlen gesperrt.",
+          "heat_offset_entity": "Optional. Zahl-Entität (input_number, number, sensor) in °C, die auf den Heiz-Sollwert addiert wird. Leer = 0.",
+          "cool_offset_entity": "Optional. Zahl-Entität (input_number, number, sensor) in °C, die auf den Kühl-Sollwert addiert wird. Leer = 0."
         }
       }
     }

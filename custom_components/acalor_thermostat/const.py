@@ -27,6 +27,14 @@ CONF_KEEP_ALIVE = "keep_alive"
 # --- Temperaturauflösung (Lastenheft 7.3) ---
 CONF_RESOLUTION = "resolution"
 
+# --- Externe Anforderungen / Schnittstelle (Lastenheft 6) ---
+CONF_HEAT_ENABLE_ENTITY = "heat_enable_entity"
+CONF_HEAT_ENABLE_INVERT = "heat_enable_invert"
+CONF_COOL_ENABLE_ENTITY = "cool_enable_entity"
+CONF_COOL_ENABLE_INVERT = "cool_enable_invert"
+CONF_HEAT_OFFSET_ENTITY = "heat_offset_entity"
+CONF_COOL_OFFSET_ENTITY = "cool_offset_entity"
+
 # --- Sollwert-Grenzen / Startwerte ---
 CONF_MIN_TEMP = "min_temp"
 CONF_MAX_TEMP = "max_temp"

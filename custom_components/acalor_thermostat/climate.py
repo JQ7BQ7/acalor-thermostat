@@ -59,10 +59,16 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_COOL_ENABLE_ENTITY,
+    CONF_COOL_ENABLE_INVERT,
     CONF_COOL_OFF_TOLERANCE,
+    CONF_COOL_OFFSET_ENTITY,
     CONF_COOL_ON_TOLERANCE,
     CONF_COOLER,
     CONF_DDZ,
+    CONF_HEAT_ENABLE_ENTITY,
+    CONF_HEAT_ENABLE_INVERT,
+    CONF_HEAT_OFFSET_ENTITY,
     CONF_HEAT_OFF_TOLERANCE,
     CONF_HEAT_ON_TOLERANCE,
     CONF_HEATER,
@@ -136,6 +142,12 @@ async def async_setup_entry(
                 max_temp=options.get(CONF_MAX_TEMP),
                 target_temp_heat=options.get(CONF_TARGET_TEMP_HEAT),
                 target_temp_cool=options.get(CONF_TARGET_TEMP_COOL),
+                heat_enable_entity=options.get(CONF_HEAT_ENABLE_ENTITY),
+                heat_enable_invert=options.get(CONF_HEAT_ENABLE_INVERT, False),
+                cool_enable_entity=options.get(CONF_COOL_ENABLE_ENTITY),
+                cool_enable_invert=options.get(CONF_COOL_ENABLE_INVERT, False),
+                heat_offset_entity=options.get(CONF_HEAT_OFFSET_ENTITY),
+                cool_offset_entity=options.get(CONF_COOL_OFFSET_ENTITY),
                 unit=hass.config.units.temperature_unit,
                 unique_id=config_entry.entry_id,
             )
@@ -172,6 +184,12 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
         max_temp: float | None,
         target_temp_heat: float | None,
         target_temp_cool: float | None,
+        heat_enable_entity: str | None,
+        heat_enable_invert: bool,
+        cool_enable_entity: str | None,
+        cool_enable_invert: bool,
+        heat_offset_entity: str | None,
+        cool_offset_entity: str | None,
         unit: str,
         unique_id: str,
     ) -> None:
@@ -211,7 +229,14 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
         self._active_output: Output | None = None
         self._output_started: datetime | None = None
 
-        # Externe Anforderungen (Seam, Lastenheft 6). Defaults = neutral.
+        # Externe Anforderungen (Lastenheft 6): zugewiesene Entitäten + Polarität.
+        self._heat_enable_entity = heat_enable_entity
+        self._heat_enable_invert = heat_enable_invert
+        self._cool_enable_entity = cool_enable_entity
+        self._cool_enable_invert = cool_enable_invert
+        self._heat_offset_entity = heat_offset_entity
+        self._cool_offset_entity = cool_offset_entity
+        # Aktuelle Werte (Defaults neutral, bis die Entitäten gelesen werden).
         self._ext_heat_enable = True
         self._ext_cool_enable = True
         self._ext_heat_offset = 0.0
@@ -258,6 +283,24 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
                 self._async_switch_changed,
             )
         )
+
+        external_entities = [
+            entity
+            for entity in (
+                self._heat_enable_entity,
+                self._cool_enable_entity,
+                self._heat_offset_entity,
+                self._cool_offset_entity,
+            )
+            if entity
+        ]
+        if external_entities:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, external_entities, self._async_external_changed
+                )
+            )
+
         self.async_on_remove(self._cancel_timers)
 
         if self._keep_alive:
@@ -277,6 +320,7 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
                 STATE_UNKNOWN,
             ):
                 self._async_update_temp(sensor_state)
+            self._update_external()
             # Tatsächlichen Ausgangszustand übernehmen + Sicherheits-Check.
             self.hass.async_create_task(self._async_startup_control(), eager_start=True)
 
@@ -404,8 +448,51 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Expose the Dynamic Dead Zone for transparency."""
-        return {"dead_zone": self._dead_zone}
+        """Expose DDZ, external requests and a human-readable status reason."""
+        return {
+            "dead_zone": self._dead_zone,
+            "heat_enabled": self._ext_heat_enable,
+            "cool_enabled": self._ext_cool_enable,
+            "heat_offset": self._ext_heat_offset,
+            "cool_offset": self._ext_cool_offset,
+            "status_reason": self._status_reason(),
+        }
+
+    def _status_reason(self) -> str:
+        """Human-readable reason for the current state (Lastenheft 5.3)."""
+        if self._hvac_mode == HVACMode.OFF:
+            return "Aus"
+        action = self.hvac_action
+        if action == HVACAction.HEATING:
+            return "Heizen"
+        if action == HVACAction.COOLING:
+            return "Kühlen"
+        # Leerlauf – genauer aufschlüsseln:
+        if self._mode_change_unsub is not None:
+            return "Moduswechsel-Verzögerung"
+        if self._pending_start_output == "heat":
+            return "Startverzögerung (Heizen)"
+        if self._pending_start_output == "cool":
+            return "Startverzögerung (Kühlen)"
+        cur = self._cur_temp
+        if cur is not None:
+            heat_relevant = self._hvac_mode in (HVACMode.HEAT, HVACMode.HEAT_COOL)
+            cool_relevant = self._hvac_mode in (HVACMode.COOL, HVACMode.HEAT_COOL)
+            if (
+                heat_relevant
+                and not self._ext_heat_enable
+                and self._target_temp_heat is not None
+                and cur < self._target_temp_heat + self._ext_heat_offset
+            ):
+                return "Heizen extern gesperrt"
+            if (
+                cool_relevant
+                and not self._ext_cool_enable
+                and self._target_temp_cool is not None
+                and cur > self._target_temp_cool + self._ext_cool_offset
+            ):
+                return "Kühlen extern gesperrt"
+        return "Leerlauf"
 
     @property
     def min_temp(self) -> float:
@@ -541,6 +628,53 @@ class AcalorThermostat(ClimateEntity, RestoreEntity):
     async def _async_control_keepalive(self, _now: datetime | None = None) -> None:
         """Keep-alive tick (re-assert the current output)."""
         await self._async_control(keepalive=True)
+
+    # ------------------------------------------------------------------ #
+    # Externe Anforderungen (Lastenheft 6)
+    # ------------------------------------------------------------------ #
+
+    async def _async_external_changed(
+        self, event: Event[EventStateChangedData]
+    ) -> None:
+        """React to a change of an external request entity."""
+        self._update_external()
+        await self._async_control()
+        self.async_write_ha_state()
+
+    @callback
+    def _update_external(self) -> None:
+        """Read the assigned external request entities into the internal seam."""
+        self._ext_heat_enable = self._read_enable(
+            self._heat_enable_entity, self._heat_enable_invert
+        )
+        self._ext_cool_enable = self._read_enable(
+            self._cool_enable_entity, self._cool_enable_invert
+        )
+        self._ext_heat_offset = self._read_offset(self._heat_offset_entity)
+        self._ext_cool_offset = self._read_offset(self._cool_offset_entity)
+
+    def _read_enable(self, entity_id: str | None, invert: bool) -> bool:
+        """Read an enable entity (on = allowed). Fail-safe: allow if unavailable."""
+        if not entity_id:
+            return True
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            return True
+        enabled = state.state == STATE_ON
+        return not enabled if invert else enabled
+
+    def _read_offset(self, entity_id: str | None) -> float:
+        """Read a numeric offset entity (°C). 0.0 if unset/invalid."""
+        if not entity_id:
+            return 0.0
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return 0.0
+        try:
+            value = float(state.state)
+        except (TypeError, ValueError):
+            return 0.0
+        return value if math.isfinite(value) else 0.0
 
     # ------------------------------------------------------------------ #
     # Regelung: Entscheidung (_evaluate) + Umsetzung (_apply)
